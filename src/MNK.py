@@ -381,4 +381,4 @@ if __name__ == '__main__':
     
 #     playVsAi(trainerA, 0)
 #     trainerA.demoPlayGames()
-    trainerA.iterateLearning(100, 5000)
+    trainerA.iterateLearning(100, 40)

@@ -100,11 +100,15 @@ class AbstractLearner(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
-    def evaluate(self, state, prevState):
+    def evaluate(self, batch): 
         """
-        returns a dict moveName -> moveProbability
+        returns a list of dict moveName -> moveProbability
         and values from the perspective of each player as an array. Values should be winning probabilities from 0 to 1
-        for the AbstractState state. prevState is the parent state and may be helpful to optimize things, but it can be ignored
+        for the AbstractState state.
+        batch is a list of pairs: state, prevState
+        prevState is the parent state and may be helpful to optimize things, but it can be ignored
+        some of the states in the batch may be terminal. These do not have to be evaluated, their index in the result
+        array can be filled with a dummy value
         """
         
     @abc.abstractmethod
@@ -197,7 +201,10 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def saveState(self, file):
         torch.save(self.net.state_dict(), file)
     
-    def evaluate(self, state, prevState):
+    def evaluate(self, batch):
+        
+        state, prevState = batch[0] # TODO
+        
         netIn = self.createEvalNetworkInput(state, prevState)
         moveP, winP = self.net(Variable(netIn).cuda())
 
@@ -318,6 +325,29 @@ class TreeNode():
         child.parent = None
         return child
     
+    def getMoveDistribution(self):
+        sumv = 0
+        for m in dict.keys(self.edges):
+            e = self.edges[m]
+            sumv += e.visitCount
+        
+        r = dict()
+        for m in dict.keys(self.edges):
+            e = self.edges[m]
+            r[m] = e.visitCount / float(sumv)
+        
+        return r
+    
+    def getWinnerEncoding(self):
+        r = [0] * self.state.getPlayerCount()
+        winner = self.state.getWinner()
+        if winner != -1:
+            r[winner] = 1
+        else:
+            for idx in range(self.state.getPlayerCount()):
+                r[idx] = 1.0 / self.state.getPlayerCount()
+        return r
+    
     def selectMove(self, cpuct):
         moveName = None
         moveValue = 0
@@ -366,26 +396,25 @@ class TreeNode():
             self.parent.meanValue = self.parent.totalValue / self.parent.visitCount
             self.parent.parentNode.backup(vs)
 
-    '''
-    evaluator is an AbstractLearner
-    '''
-    def expandEvalBack(self, evaluator):
+    def expand(self, movePMap):
+        for moveName in dict.keys(movePMap):
+            self.edges[moveName] = TreeEdge(movePMap[moveName], self)
+        self.moveOptions = sorted(dict.keys(self.edges))
+
+    def evalTerminalState(self):
         if self.state.isTerminal():
             vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
             if self.state.getWinner() != -1:
                 vs = [0] * self.state.getPlayerCount()
                 vs[self.state.getWinner()] = 1.0
         else:
-            prevState = None
-            if self.parent != None:
-                prevState = self.parent.parentNode.state
-            movePMap, vs = evaluator.evaluate(self.state, prevState)
-            
-            for moveName in dict.keys(movePMap):
-                self.edges[moveName] = TreeEdge(movePMap[moveName], self)
-            self.moveOptions = sorted(dict.keys(self.edges))
-#         print("backup", vs)
-        self.backup(vs)
+            assert False, "state should be Terminal"
+
+    def getPrevState(self):
+        prevState = None
+        if self.parent != None:
+            prevState = self.parent.parentNode.state
+        return prevState
 
 class NeuralMctsTrainer():
     # TODO cpuct is a completely blind guess...
@@ -486,10 +515,74 @@ class NeuralMctsTrainer():
             t = time.time()
             for f in self.collectGameFrames():
                 allframes.append(f)
-            if i % 5 == 0:
+            if i % 100 == 0:
                 print("Process %i| Finished game %i in %f sec" % (pid, i, time.time() - t))
         random.shuffle(allframes)
         return allframes
+
+    def collectBatchedNGameFrames(self, n, batchSize, explore):
+        gamesLeft = n
+        
+        frames = []
+        
+        batch = []
+        bframes = []
+        for _ in range(batchSize):
+            batch.append(TreeNode(self.stateCreator()))
+            bframes.append([])
+        
+        while gamesLeft > 0:
+            self.batchMcts(batch)
+            
+            for idx in range(batchSize):
+                b = batch[idx]
+                md = b.getMoveDistribution()
+                if b.state.getTurn() > 0:
+                    bframes[idx].append((b.state.clone(), md))
+                mv = self.pickMove(md, b.state, explore and b.state.isEarlyGame())
+                b = b.getChildForMove(mv)
+                if b.state.isTerminal():
+                    for f in bframes[idx]:
+                        frames.append(f + (b.getWinnerEncoding(), ))
+                    bframes[idx] = []
+                    batch[idx] = TreeNode(self.stateCreator())
+                    gamesLeft -= 1
+                
+        return frames
+        
+
+    def searchTillUnexpanded(self, node):
+        while not node.state.needsExpand() and not node.state.isTerminal():
+            node = node.selectMove(self.cpuct)
+        return node
+
+    def batchMcts(self, states, evaluator = None):
+        '''
+        given a list of states (TreeNodes!) perform mcts search on them, running batched evaluations on them
+        returns a list of dict with move probabilities.
+        Each MCTS will build a tree that at most is movesToCheck big.
+        '''
+        
+        eva = evaluator
+        if eva == None:
+            eva = self.evaluator
+            
+        workspace = states
+        for _ in range(self.movesToCheck):
+            workspace = [self.searchTillUnexpanded(s) for s in workspace]
+            evalin = [(s.state, s.getPrevState()) for s in workspace]
+            evalout = eva.evaluate(evalin)
+            for idx, ev in enumerate(evalout):
+                node = workspace[idx]
+                w = ev[1]
+                if node.state.isTerminal():
+                    w = node.evalTerminalState()
+                else:
+                    node.expand(ev[0])
+                node.backup(w)
+                workspace[idx] = states[idx]
+        
+        
 
     '''
     given a starting state tree node return a distribution of probabilities over the moves to take
@@ -662,13 +755,18 @@ class NeuralMctsTrainer():
                 for f in asy.get():
                     frames.append(f)
             
+            winSums = [0] * frames[0][0].getPlayerCount()
+            for f in frames:
+                for x in range(f[2]):
+                    winSums[x] += f[2][x]
+            
+            print("Wins situation in played games is: ", winSums)
+            
             print("%f frames per game" % (len(frames) / float(gamesPerIter)))
             
             self.frameSets.append(frames)
             
-            
             lastFrameSetUsed = -1
-            winSums = [0] * frames[0][0].getPlayerCount()
             frames = []
             for si in reversed(range(len(self.frameSets))):
                 fi = 0
@@ -677,17 +775,12 @@ class NeuralMctsTrainer():
                 random.shuffle(fset)
                 while len(frames) < self.evaluator.getFramesPerIteration() and fi < len(fset):
                     frames.append(fset[fi])
-                    for i in range(len(fset[fi][2])):
-                        winSums[i] += fset[fi][2][i]
                     fi+=1
                 
                 if len(frames) >= self.evaluator.getFramesPerIteration():
                     break
-            
-            print("Wins situation in played games is: ", winSums)
-            
             if lastFrameSetUsed > 0:
-                del self.frameSets[0] 
+                del self.frameSets[0]
 
             if dbgUniqueStates:
                 # this is quite slow for larger frame numbers and lots of unique states. Too slow in fact
@@ -704,9 +797,8 @@ class NeuralMctsTrainer():
                 if self.isChampionDefeated(self.evaluator, self.learner, pool):
                     self.evaluator = self.learner.clone()
                     improved = True
-                    
-            if improved: #hmmmmmmmmmm
-                self.learner = self.evaluator.clone()
             
             if self.workingdir != None and improved:
-                self.evaluator.saveState(os.path.join(self.workingdir, "net.iter" + str(i)))
+                p = os.path.join(self.workingdir, "net.iter" + str(i))
+                print("Writing new model to " + p)
+                self.evaluator.saveState(p)
