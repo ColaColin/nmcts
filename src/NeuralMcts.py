@@ -611,7 +611,7 @@ class NeuralMctsTrainer():
 
 #         asyncs = []
 #         for g in range(games):
-#             asyncs.append(pool.apply_async(self.playChampionMatch, args=(g < games / 2,)))
+#             asyncs.append(pool.apply_async(self.playChampionMatch, args=(champion, challenger, g < games / 2,)))
 #         for asy in asyncs:
 #             for r in asy.get():
 #                 championWins += r[0]
@@ -645,22 +645,24 @@ class NeuralMctsTrainer():
             t = time.time()
             print("Iteration %i, collecting games" % i)
             
-            gamesPerProc = int(gamesPerIter / procs)
-            missing = gamesPerIter % procs
+#             gamesPerProc = int(gamesPerIter / procs)
+#             missing = gamesPerIter % procs
+#             
+#             asyncs = []
+#             
+#             for pid in range(procs):
+#                 g = gamesPerProc
+#                 if pid == 0:
+#                     g += missing
+#                 asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
+#             
+#             frames = []
+#             
+#             for asy in asyncs:
+#                 for f in asy.get():
+#                     frames.append(f)
             
-            asyncs = []
-            
-            for pid in range(procs):
-                g = gamesPerProc
-                if pid == 0:
-                    g += missing
-                asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
-            
-            frames = []
-            
-            for asy in asyncs:
-                for f in asy.get():
-                    frames.append(f)
+            frames = self.collectNGameFrames(gamesPerIter, 0)
             
             print("%f frames per game" % (len(frames) / float(gamesPerIter)))
             

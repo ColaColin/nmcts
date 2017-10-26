@@ -359,7 +359,7 @@ if __name__ == '__main__':
     mlpLearnerA = MNKNetworkLearner(150000, 100, 10, m,n,h, features=features)
     trainerA = NeuralMctsTrainer(mnkCreator, mlpLearnerA,
                       mkpath(m, n, k, features),
-                      movesToCheckMin=800, movesToCheckMax=1200, moveToCheckIncreasePerIteration=50)
+                      movesToCheckMin=400, movesToCheckMax=1200, moveToCheckIncreasePerIteration=50)
          
 #     trainerA.loadIteration(4)
 #     mlpLearnerA.initState(None)
@@ -381,4 +381,4 @@ if __name__ == '__main__':
     
 #     playVsAi(trainerA, 0)
 #     trainerA.demoPlayGames()
-    trainerA.iterateLearning(100, 5000)
+    trainerA.iterateLearning(1, 10)
