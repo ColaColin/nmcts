@@ -100,21 +100,11 @@ class AbstractLearner(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
-    def getBatchSize(self):
+    def evaluate(self, state, prevState):
         """
-        returns the batchsize
-        """
-    
-    @abc.abstractmethod
-    def evaluate(self, batch): 
-        """
-        returns a list of dict moveName -> moveProbability
+        returns a dict moveName -> moveProbability
         and values from the perspective of each player as an array. Values should be winning probabilities from 0 to 1
-        for the AbstractState state.
-        batch is a list of pairs: state, prevState
-        prevState is the parent state and may be helpful to optimize things, but it can be ignored
-        some of the states in the batch may be terminal. These do not have to be evaluated, their index in the result
-        array can be filled with a dummy value
+        for the AbstractState state. prevState is the parent state and may be helpful to optimize things, but it can be ignored
         """
         
     @abc.abstractmethod
@@ -146,9 +136,6 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     def getFramesPerIteration(self):
         return self.framesPerIteration
-    
-    def getBatchSize(self):
-        return self.batchSize
     
     @abc.abstractmethod
     def getNetInputShape(self):
@@ -210,33 +197,20 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def saveState(self, file):
         torch.save(self.net.state_dict(), file)
     
-    # this just assumes that the batches are smaller than self.framesPerIteration
-    # which is a pretty fair assumption...
-    def evaluate(self, batch):
-        assert len(batch) <= self.framesPerIteration
+    def evaluate(self, state, prevState):
+        netIn = self.createEvalNetworkInput(state, prevState)
+        moveP, winP = self.net(Variable(netIn).cuda())
+
+        r = dict()
+        for m in self.getMoveNames():
+            r[m] = moveP.data[0, self.getMoveNames().index(m)]
+
+        w = []
         
-        for idx, b in enumerate(batch):
-            state, _ = b
-            self.fillNetworkInput(state, self.networkInput, idx)
+        for pid in range(state.getPlayerCount()):
+            w.append(winP.data[0, state.mapPlayerIndexToTurnRel(pid)])
         
-        netIn = Variable(self.networkInput[:len(batch)]).cuda()
-        moveP, winP = self.net(netIn)
-        
-        results = []
-        for bidx, b in enumerate(batch):
-            state, _ = b
-            
-            r = dict()
-            for midx, m in enumerate(self.getMoveNames()):
-                r[m] = moveP.data[bidx, midx]
-            
-            w = []
-            for pid in range(state.getPlayerCount()):
-                w.append(winP.data[bidx, state.mapPlayerIndexToTurnRel(pid)])
-            
-            results.append((r, w))
-            
-        return results
+        return r, w
     
     def fillTrainingSet(self, frames):
         self.moveOutput.fill_(0)
@@ -344,29 +318,6 @@ class TreeNode():
         child.parent = None
         return child
     
-    def getMoveDistribution(self):
-        sumv = 0
-        for m in dict.keys(self.edges):
-            e = self.edges[m]
-            sumv += e.visitCount
-        
-        r = dict()
-        for m in dict.keys(self.edges):
-            e = self.edges[m]
-            r[m] = e.visitCount / float(sumv)
-        
-        return r
-    
-    def getWinnerEncoding(self):
-        r = [0] * self.state.getPlayerCount()
-        winner = self.state.getWinner()
-        if winner != -1:
-            r[winner] = 1
-        else:
-            for idx in range(self.state.getPlayerCount()):
-                r[idx] = 1.0 / self.state.getPlayerCount()
-        return r
-    
     def selectMove(self, cpuct):
         moveName = None
         moveValue = 0
@@ -415,24 +366,26 @@ class TreeNode():
             self.parent.meanValue = self.parent.totalValue / self.parent.visitCount
             self.parent.parentNode.backup(vs)
 
-    def expand(self, movePMap):
-        for moveName in dict.keys(movePMap):
-            self.edges[moveName] = TreeEdge(movePMap[moveName], self)
-        self.moveOptions = sorted(dict.keys(self.edges))
-
-    def evalTerminalState(self):
-        assert self.state.isTerminal()
-        vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
-        if self.state.getWinner() != -1:
-            vs = [0] * self.state.getPlayerCount()
-            vs[self.state.getWinner()] = 1.0
-        return vs
-
-    def getPrevState(self):
-        prevState = None
-        if self.parent != None:
-            prevState = self.parent.parentNode.state
-        return prevState
+    '''
+    evaluator is an AbstractLearner
+    '''
+    def expandEvalBack(self, evaluator):
+        if self.state.isTerminal():
+            vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
+            if self.state.getWinner() != -1:
+                vs = [0] * self.state.getPlayerCount()
+                vs[self.state.getWinner()] = 1.0
+        else:
+            prevState = None
+            if self.parent != None:
+                prevState = self.parent.parentNode.state
+            movePMap, vs = evaluator.evaluate(self.state, prevState)
+            
+            for moveName in dict.keys(movePMap):
+                self.edges[moveName] = TreeEdge(movePMap[moveName], self)
+            self.moveOptions = sorted(dict.keys(self.edges))
+#         print("backup", vs)
+        self.backup(vs)
 
 class NeuralMctsTrainer():
     # TODO cpuct is a completely blind guess...
@@ -533,81 +486,11 @@ class NeuralMctsTrainer():
             t = time.time()
             for f in self.collectGameFrames():
                 allframes.append(f)
-            if i % 100 == 0:
+            if i % 5 == 0:
                 print("Process %i| Finished game %i in %f sec" % (pid, i, time.time() - t))
         random.shuffle(allframes)
         return allframes
 
-    def collectNGameFramesBatched(self, n, batchSize, explore=True):
-        gamesLeft = n
-        frames = []
-        
-        batch = []
-        bframes = []
-        for _ in range(batchSize):
-            batch.append(TreeNode(self.stateCreator()))
-            bframes.append([])
-        
-        while gamesLeft > 0:
-            print("batchA")
-            self.batchMcts(batch)
-            print("batchB")
-            for idx in range(batchSize):
-                b = batch[idx]
-                if b == None:
-                    continue
-                md = b.getMoveDistribution()
-                if b.state.getTurn() > 0:
-                    bframes[idx].append((b.state.clone(), md))
-                mv = self.pickMove(md, b.state, explore and b.state.isEarlyGame())
-                b = b.getChildForMove(mv)
-                
-                if b.state.isTerminal():
-                    for f in bframes[idx]:
-                        frames.append(f + (b.getWinnerEncoding(), ))
-                    bframes[idx] = []
-                    batch[idx] = TreeNode(self.stateCreator())
-                    gamesLeft -= 1
-                    print(gamesLeft)
-                else:
-                    batch[idx] = b
-                    
-                if gamesLeft <= 0:
-                    break
-                
-        return frames
-        
-
-    def searchTillUnexpanded(self, node):
-        while not node.needsExpand() and not node.state.isTerminal():
-            node = node.selectMove(self.cpuct)
-        return node
-
-    def batchMcts(self, states, evaluator = None):
-        '''
-        given a list of states (TreeNodes!) perform mcts search on them, running batched evaluations on them
-        returns a list of dict with move probabilities.
-        Each MCTS will build a tree that at most is movesToCheck big.
-        '''
-        
-        eva = evaluator
-        if eva == None:
-            eva = self.evaluator
-            
-        workspace = states
-        for _ in range(self.movesToCheck):
-            workspace = [self.searchTillUnexpanded(s) for s in workspace]
-            evalin = [(s.state, s.getPrevState()) for s in workspace]
-            evalout = eva.evaluate(evalin)
-            for idx, ev in enumerate(evalout):
-                node = workspace[idx]
-                w = ev[1]
-                if node.state.isTerminal():
-                    w = node.evalTerminalState()
-                else:
-                    node.expand(ev[0])
-                node.backup(w)
-                workspace[idx] = states[idx]
     '''
     given a starting state tree node return a distribution of probabilities over the moves to take
     in the starting state for approx. optimal play. The caller has to decide if it should exploit (i.e.
@@ -762,37 +645,30 @@ class NeuralMctsTrainer():
             t = time.time()
             print("Iteration %i, collecting games" % i)
             
-            frames = self.collectNGameFramesBatched(gamesPerIter, self.learner.getBatchSize())
+            gamesPerProc = int(gamesPerIter / procs)
+            missing = gamesPerIter % procs
             
-#             gamesPerProc = int(gamesPerIter / procs)
-#             missing = gamesPerIter % procs
-#             
-#             asyncs = []
-#             
-#             for pid in range(procs):
-#                 g = gamesPerProc
-#                 if pid == 0:
-#                     g += missing
-#                 asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
-#             
-#             frames = []
-#             
-#             for asy in asyncs:
-#                 for f in asy.get():
-#                     frames.append(f)
+            asyncs = []
             
-            winSums = [0] * frames[0][0].getPlayerCount()
-            for f in frames:
-                for x in range(len(f[2])):
-                    winSums[x] += f[2][x]
+            for pid in range(procs):
+                g = gamesPerProc
+                if pid == 0:
+                    g += missing
+                asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
             
-            print("Wins situation in played games is: ", winSums)
+            frames = []
+            
+            for asy in asyncs:
+                for f in asy.get():
+                    frames.append(f)
             
             print("%f frames per game" % (len(frames) / float(gamesPerIter)))
             
             self.frameSets.append(frames)
             
+            
             lastFrameSetUsed = -1
+            winSums = [0] * frames[0][0].getPlayerCount()
             frames = []
             for si in reversed(range(len(self.frameSets))):
                 fi = 0
@@ -801,12 +677,17 @@ class NeuralMctsTrainer():
                 random.shuffle(fset)
                 while len(frames) < self.evaluator.getFramesPerIteration() and fi < len(fset):
                     frames.append(fset[fi])
+                    for i in range(len(fset[fi][2])):
+                        winSums[i] += fset[fi][2][i]
                     fi+=1
                 
                 if len(frames) >= self.evaluator.getFramesPerIteration():
                     break
+            
+            print("Wins situation in played games is: ", winSums)
+            
             if lastFrameSetUsed > 0:
-                del self.frameSets[0]
+                del self.frameSets[0] 
 
             if dbgUniqueStates:
                 # this is quite slow for larger frame numbers and lots of unique states. Too slow in fact
@@ -823,8 +704,9 @@ class NeuralMctsTrainer():
                 if self.isChampionDefeated(self.evaluator, self.learner, pool):
                     self.evaluator = self.learner.clone()
                     improved = True
+                    
+            if improved: #hmmmmmmmmmm
+                self.learner = self.evaluator.clone()
             
             if self.workingdir != None and improved:
-                p = os.path.join(self.workingdir, "net.iter" + str(i))
-                print("Writing new model to " + p)
-                self.evaluator.saveState(p)
+                self.evaluator.saveState(os.path.join(self.workingdir, "net.iter" + str(i)))
