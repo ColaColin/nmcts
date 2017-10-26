@@ -248,11 +248,11 @@ class MNKNetworkLearner(AbstractTorchLearner):
         self.fillNetworkInput(state, ni, 0)
         return ni
     
-m = 5
-n = 5
-k = 4
-features = 128
-h = 400
+m = 3
+n = 3
+k = 3
+features = -1
+h = 300
 
 def mnkCreator():
     global m,n,k
@@ -381,4 +381,4 @@ if __name__ == '__main__':
     
 #     playVsAi(trainerA, 0)
 #     trainerA.demoPlayGames()
-    trainerA.iterateLearning(100, 40)
+    trainerA.iterateLearning(100, 200)

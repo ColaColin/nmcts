@@ -100,6 +100,12 @@ class AbstractLearner(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
+    def getBatchSize(self):
+        """
+        returns the batchsize
+        """
+    
+    @abc.abstractmethod
     def evaluate(self, batch): 
         """
         returns a list of dict moveName -> moveProbability
@@ -140,6 +146,9 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     def getFramesPerIteration(self):
         return self.framesPerIteration
+    
+    def getBatchSize(self):
+        return self.batchSize
     
     @abc.abstractmethod
     def getNetInputShape(self):
@@ -201,23 +210,33 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def saveState(self, file):
         torch.save(self.net.state_dict(), file)
     
+    # this just assumes that the batches are smaller than self.framesPerIteration
+    # which is a pretty fair assumption...
     def evaluate(self, batch):
+        assert len(batch) <= self.framesPerIteration
         
-        state, prevState = batch[0] # TODO
+        for idx, b in enumerate(batch):
+            state, _ = b
+            self.fillNetworkInput(state, self.networkInput, idx)
         
-        netIn = self.createEvalNetworkInput(state, prevState)
-        moveP, winP = self.net(Variable(netIn).cuda())
-
-        r = dict()
-        for m in self.getMoveNames():
-            r[m] = moveP.data[0, self.getMoveNames().index(m)]
-
-        w = []
+        netIn = Variable(self.networkInput[:len(batch)]).cuda()
+        moveP, winP = self.net(netIn)
         
-        for pid in range(state.getPlayerCount()):
-            w.append(winP.data[0, state.mapPlayerIndexToTurnRel(pid)])
-        
-        return r, w
+        results = []
+        for bidx, b in enumerate(batch):
+            state, _ = b
+            
+            r = dict()
+            for midx, m in enumerate(self.getMoveNames()):
+                r[m] = moveP.data[bidx, midx]
+            
+            w = []
+            for pid in range(state.getPlayerCount()):
+                w.append(winP.data[bidx, state.mapPlayerIndexToTurnRel(pid)])
+            
+            results.append((r, w))
+            
+        return results
     
     def fillTrainingSet(self, frames):
         self.moveOutput.fill_(0)
@@ -402,13 +421,12 @@ class TreeNode():
         self.moveOptions = sorted(dict.keys(self.edges))
 
     def evalTerminalState(self):
-        if self.state.isTerminal():
-            vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
-            if self.state.getWinner() != -1:
-                vs = [0] * self.state.getPlayerCount()
-                vs[self.state.getWinner()] = 1.0
-        else:
-            assert False, "state should be Terminal"
+        assert self.state.isTerminal()
+        vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
+        if self.state.getWinner() != -1:
+            vs = [0] * self.state.getPlayerCount()
+            vs[self.state.getWinner()] = 1.0
+        return vs
 
     def getPrevState(self):
         prevState = None
@@ -520,9 +538,8 @@ class NeuralMctsTrainer():
         random.shuffle(allframes)
         return allframes
 
-    def collectBatchedNGameFrames(self, n, batchSize, explore):
+    def collectNGameFramesBatched(self, n, batchSize, explore=True):
         gamesLeft = n
-        
         frames = []
         
         batch = []
@@ -532,27 +549,37 @@ class NeuralMctsTrainer():
             bframes.append([])
         
         while gamesLeft > 0:
+            print("batchA")
             self.batchMcts(batch)
-            
+            print("batchB")
             for idx in range(batchSize):
                 b = batch[idx]
+                if b == None:
+                    continue
                 md = b.getMoveDistribution()
                 if b.state.getTurn() > 0:
                     bframes[idx].append((b.state.clone(), md))
                 mv = self.pickMove(md, b.state, explore and b.state.isEarlyGame())
                 b = b.getChildForMove(mv)
+                
                 if b.state.isTerminal():
                     for f in bframes[idx]:
                         frames.append(f + (b.getWinnerEncoding(), ))
                     bframes[idx] = []
                     batch[idx] = TreeNode(self.stateCreator())
                     gamesLeft -= 1
+                    print(gamesLeft)
+                else:
+                    batch[idx] = b
+                    
+                if gamesLeft <= 0:
+                    break
                 
         return frames
         
 
     def searchTillUnexpanded(self, node):
-        while not node.state.needsExpand() and not node.state.isTerminal():
+        while not node.needsExpand() and not node.state.isTerminal():
             node = node.selectMove(self.cpuct)
         return node
 
@@ -581,9 +608,6 @@ class NeuralMctsTrainer():
                     node.expand(ev[0])
                 node.backup(w)
                 workspace[idx] = states[idx]
-        
-        
-
     '''
     given a starting state tree node return a distribution of probabilities over the moves to take
     in the starting state for approx. optimal play. The caller has to decide if it should exploit (i.e.
@@ -738,26 +762,28 @@ class NeuralMctsTrainer():
             t = time.time()
             print("Iteration %i, collecting games" % i)
             
-            gamesPerProc = int(gamesPerIter / procs)
-            missing = gamesPerIter % procs
+            frames = self.collectNGameFramesBatched(gamesPerIter, self.learner.getBatchSize())
             
-            asyncs = []
-            
-            for pid in range(procs):
-                g = gamesPerProc
-                if pid == 0:
-                    g += missing
-                asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
-            
-            frames = []
-            
-            for asy in asyncs:
-                for f in asy.get():
-                    frames.append(f)
+#             gamesPerProc = int(gamesPerIter / procs)
+#             missing = gamesPerIter % procs
+#             
+#             asyncs = []
+#             
+#             for pid in range(procs):
+#                 g = gamesPerProc
+#                 if pid == 0:
+#                     g += missing
+#                 asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
+#             
+#             frames = []
+#             
+#             for asy in asyncs:
+#                 for f in asy.get():
+#                     frames.append(f)
             
             winSums = [0] * frames[0][0].getPlayerCount()
             for f in frames:
-                for x in range(f[2]):
+                for x in range(len(f[2])):
                     winSums[x] += f[2][x]
             
             print("Wins situation in played games is: ", winSums)
