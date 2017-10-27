@@ -53,6 +53,12 @@ class AbstractState(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
+    def getMoveCount(self):
+        """
+        returns the number of legal moves a player can make
+        """
+    
+    @abc.abstractmethod
     def clone(self):
         """
         returns a deep copy of the state
@@ -100,7 +106,12 @@ class AbstractLearner(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
-    def evaluate(self, state, prevState):
+    def getBatchSize(self):
+        """
+        """
+    
+    @abc.abstractmethod
+    def evaluate(self, batch):
         """
         returns a dict moveName -> moveProbability
         and values from the perspective of each player as an array. Values should be winning probabilities from 0 to 1
@@ -150,10 +161,13 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def getMoveNames(self):
+    def getMoveCount(self):
         """
-        returns an array of all possibles move names
+        returns the number of possible moves a player can make
         """
+    
+    def getBatchSize(self):
+        return self.batchSize
     
     @abc.abstractmethod
     def createNetwork(self):
@@ -183,7 +197,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     def initState(self, file):
         self.networkInput = torch.zeros((self.framesPerIteration,) + self.getNetInputShape()).pin_memory()
-        self.moveOutput = torch.zeros(self.framesPerIteration, len(self.getMoveNames())).pin_memory()
+        self.moveOutput = torch.zeros(self.framesPerIteration, self.getMoveCount()).pin_memory()
         self.winOutput = torch.zeros(self.framesPerIteration, self.getPlayerCount()).pin_memory()
         self.net = self.createNetwork()
         self.opt = self.createOptimizer(self.net)
@@ -197,20 +211,37 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def saveState(self, file):
         torch.save(self.net.state_dict(), file)
     
-    def evaluate(self, state, prevState):
-        netIn = self.createEvalNetworkInput(state, prevState)
-        moveP, winP = self.net(Variable(netIn).cuda())
-
-        r = dict()
-        for m in self.getMoveNames():
-            r[m] = moveP.data[0, self.getMoveNames().index(m)]
-
-        w = []
+    def evaluate(self, batch):
+        assert len(batch) <= self.framesPerIteration
         
-        for pid in range(state.getPlayerCount()):
-            w.append(winP.data[0, state.mapPlayerIndexToTurnRel(pid)])
+        for idx, b in enumerate(batch):
+            if b != None:
+                state, _ = b
+                self.fillNetworkInput(state, self.networkInput, idx)
         
-        return r, w
+        netIn = Variable(self.networkInput[:len(batch)]).cuda()
+        moveP, winP = self.net(netIn)
+        
+        results = []
+        for bidx, b in enumerate(batch):
+            if b != None:
+                state, _ = b
+                
+                
+                r = moveP.data[bidx]
+                assert r.is_cuda #this is here because a copy is needed and I want to make sure r is gpu, so cpu() yields a copy
+                r = r.cpu()
+                
+                w = []
+                for pid in range(state.getPlayerCount()):
+                    w.append(winP.data[bidx, state.mapPlayerIndexToTurnRel(pid)])
+                
+                results.append((r, w))
+            else:
+                results.append((0,0))
+            
+        return results
+    
     
     def fillTrainingSet(self, frames):
         self.moveOutput.fill_(0)
@@ -220,8 +251,8 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         for fidx, frame in enumerate(frames):
             self.fillNetworkInput(frame[0], self.networkInput, fidx)
             
-            for mk in dict.keys(frame[1]):
-                self.moveOutput[fidx, self.getMoveNames().index(mk)] = frame[1][mk]
+            for idx, p in enumerate(frame[1]):
+                self.moveOutput[fidx, idx] = p
             
             for pid in range(frame[0].getPlayerCount()):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[2][pid]
@@ -282,31 +313,35 @@ class TreeEdge():
     def __init__(self, priorP, parentNode):
         self.visitCount = 0
         self.totalValue = 0
-        self.meanValue = 0
+        self.meanValue = 0 #TODO should the default not be 0.5 instead of zero? The values go from 0 to 1 after all. 0 is pretty pessimistic
         self.priorP = priorP
         self.parentNode = parentNode
         self.childNode = None
         
 class TreeNode():
-    def __init__(self, state, parentEdge=None):
+    def __init__(self, state, parentEdge=None, noiseMix = 0.2):
         assert isinstance(state, AbstractState)
-        
         self.state = state
-        self.edges = dict()
-        self.moveOptions = []
+        self.edges = [None] * state.getMoveCount()
         self.parent = parentEdge
+        self.terminalResult = None
+        self.noiseMix = noiseMix
+        self.dconst = [0.03] * self.state.getMoveCount()
+        self.movePMap = None
+        self.isExpanded = False
+        self.allVisits = 0
         
     def countTreeSize(self):
         c = 1
-        for e in dict.values(self.edges):
-            if e.childNode != None:
+        for e in self.edges:
+            if e != None and e.childNode != None:
                 c += e.childNode.countTreeSize()
         return c
     
     def executeMove(self, move):
         newState = self.state.clone()
         newState.simulate(move)
-        return TreeNode(newState, parentEdge=self.edges[move])
+        return TreeNode(newState, parentEdge=self.edges[move], noiseMix = self.noiseMix)
     
     def getChildForMove(self, move):
         child = self.edges[move].childNode
@@ -318,38 +353,68 @@ class TreeNode():
         child.parent = None
         return child
     
+    def getMoveDistribution(self):
+        sumv = float(self.allVisits)
+        
+        r = [0] * len(self.edges)
+        for m in range(len(r)):
+            e = self.edges[m]
+            if e != None:
+                r[m] = e.visitCount / sumv
+        
+        return r
+    
+    def getWinnerEncoding(self):
+        r = [0] * self.state.getPlayerCount()
+        winner = self.state.getWinner()
+        if winner != -1:
+            r[winner] = 1
+        else:
+            for idx in range(self.state.getPlayerCount()):
+                r[idx] = 1.0 / self.state.getPlayerCount()
+        return r
+    
     def selectMove(self, cpuct):
         moveName = None
         moveValue = 0
-        allVisits = 0
+        allVisits = self.allVisits
         
-        for e in dict.values(self.edges):
-            allVisits += e.visitCount
-        allVisitsSq = 1 + allVisits ** 0.5
+        allVisitsSq = allVisits ** 0.5
         
 #         foo = []
         
         #if self.parent == None: # and explore: #hmmmmm (also make sure to check below where this value is then actually used!
-        dirNoise = np.random.dirichlet([0.03] * len(self.moveOptions))
+        dirNoise = np.random.dirichlet(self.dconst)
         
-        for idx, m in enumerate(self.moveOptions):
-            if not self.state.isMoveLegal(m):
+        for idx in range(self.state.getMoveCount()):
+            if not self.state.isMoveLegal(idx):
                 continue
             
-            e = self.edges[m]
-            q = e.meanValue
-            p = e.priorP
+            e = self.edges[idx]
+            
+            if e != None:
+                q = e.meanValue
+                p = e.priorP
+                vc = e.visitCount
+            else:
+                q = 0
+                p = self.movePMap[idx]
+                vc = 0
             
             #if self.parent == None: # and explore: #hmmm
-            p = 0.8 * p + 0.2 * dirNoise[idx]
+            p = (1-self.noiseMix) * p + self.noiseMix * dirNoise[idx]
             
-            u = cpuct * p * (allVisitsSq / (1 + e.visitCount))
+            u = cpuct * p * ((1 +  allVisitsSq) / (1 + vc))
             value = q + u
 #             foo.append((m, value))
             if (moveName == None or value > moveValue):
-                moveName = m
+                moveName = idx
                 moveValue = value
 #         print(foo)
+
+        if self.edges[moveName] == None:
+            self.edges[moveName] = TreeEdge(self.movePMap[moveName], self)
+
         selectedEdge = self.edges[moveName]
         if selectedEdge.childNode == None:
             selectedEdge.childNode = self.executeMove(moveName)
@@ -357,35 +422,47 @@ class TreeNode():
         return selectedEdge.childNode
     
     def needsExpand(self):
-        return len(self.edges) == 0
+        return not self.isExpanded
 
     def backup(self, vs):
         if self.parent != None:
             self.parent.visitCount += 1
+            self.parent.parentNode.allVisits += 1
             self.parent.totalValue += vs[self.parent.parentNode.state.getPlayerOnTurnIndex()]
             self.parent.meanValue = self.parent.totalValue / self.parent.visitCount
             self.parent.parentNode.backup(vs)
+
+    def getTerminalResult(self):
+        assert self.state.isTerminal()
+        if self.terminalResult == None:
+            vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
+            if self.state.getWinner() != -1:
+                vs = [0] * self.state.getPlayerCount()
+                vs[self.state.getWinner()] = 1.0
+            self.terminalResult = vs
+        return self.terminalResult
+
+    def expand(self, movePMap):
+        self.movePMap = movePMap
+        self.isExpanded = True
+        
+#         mi = 0
+#         mc = self.state.getMoveCount()
+#         while mi < mc:
+#             self.edges[mi] = TreeEdge(movePMap[mi], self)
+#             mi += 1
+
+    def getPrevState(self):
+        prevState = None
+        if self.parent != None:
+            prevState = self.parent.parentNode.state
+        return prevState
 
     '''
     evaluator is an AbstractLearner
     '''
     def expandEvalBack(self, evaluator):
-        if self.state.isTerminal():
-            vs = [1.0 / self.state.getPlayerCount()] * self.state.getPlayerCount()
-            if self.state.getWinner() != -1:
-                vs = [0] * self.state.getPlayerCount()
-                vs[self.state.getWinner()] = 1.0
-        else:
-            prevState = None
-            if self.parent != None:
-                prevState = self.parent.parentNode.state
-            movePMap, vs = evaluator.evaluate(self.state, prevState)
-            
-            for moveName in dict.keys(movePMap):
-                self.edges[moveName] = TreeEdge(movePMap[moveName], self)
-            self.moveOptions = sorted(dict.keys(self.edges))
-#         print("backup", vs)
-        self.backup(vs)
+        assert False
 
 class NeuralMctsTrainer():
     # TODO cpuct is a completely blind guess...
@@ -417,13 +494,18 @@ class NeuralMctsTrainer():
     def pickMove(self, d, state, explore=False):
         ms = []
         ps = []
-        for k in dict.keys(d):
-            if state.isMoveLegal(k):
-                ms.append(k)
-                ps.append(d[k])
+        psum = 0.0
+        for idx, p in enumerate(d):
+            if state.isMoveLegal(idx):
+                ms.append(idx)
+                ps.append(p)
+                psum += p
 
         assert len(ms) > 0, "The state should have legal moves or be terminal"
-        m = None
+        
+        for idx in range(len(ps)):
+            ps[idx] /= psum
+        
         if explore:
             m = np.random.choice(ms, p = ps)
         else:
@@ -435,10 +517,15 @@ class NeuralMctsTrainer():
         moveProbs = self.mcts(tree, evaluator=evaluator)
         return self.pickMove(moveProbs, gameState, explore=False)
     
-    def findCompetitiveMove(self, gameState):
-        tree = TreeNode(gameState)
+    def findCompetitiveMove(self, gameState, noiseMix = 0.2):
+        tree = TreeNode(gameState, noiseMix=noiseMix)
 #         print(self.evaluator.evaluate(gameState, None))
-        moveProbs = self.mcts(tree)
+
+        if self.movesToCheck < 1:
+            moveProbs = self.evaluator.evaluate(gameState, None)[0]
+        else:
+            moveProbs = self.mcts(tree)
+        
         return self.pickMove(moveProbs, gameState, explore=False)
     
     def countNumberOfUniqueStates(self, frames):
@@ -491,6 +578,89 @@ class NeuralMctsTrainer():
         random.shuffle(allframes)
         return allframes
 
+    def collectNGameFramesBatched(self, n, batchSize, explore=True):
+        gamesLeft = n
+        gamesRunning = 0
+        frames = []
+        
+        batch = []
+        bframes = []
+        for _ in range(batchSize):
+            batch.append(TreeNode(self.stateCreator()))
+            gamesRunning += 1
+            bframes.append([])
+        
+        while gamesLeft > 0:
+            t = time.time()
+            print("batch Start")
+            self.batchMcts(batch)
+            print("batch End after %f" % (time.time() - t))
+            
+            for idx in range(batchSize):
+                b = batch[idx]
+                if b == None:
+                    continue
+                md = b.getMoveDistribution()
+                if b.state.getTurn() > 0:
+                    bframes[idx].append((b.state.clone(), md))
+                mv = self.pickMove(md, b.state, explore and b.state.isEarlyGame())
+                b = b.getChildForMove(mv)
+                
+                if b.state.isTerminal():
+                    for f in bframes[idx]:
+                        frames.append(f + (b.getWinnerEncoding(), ))
+                    bframes[idx] = []
+                    gamesLeft -= 1
+                    gamesRunning -= 1
+                    if gamesRunning < gamesLeft:
+                        batch[idx] = TreeNode(self.stateCreator())
+                        gamesRunning += 1
+                    else:
+                        batch[idx] = None
+                    print(gamesLeft)
+                else:
+                    batch[idx] = b
+                    
+                if gamesLeft <= 0:
+                    break
+                
+        return frames
+
+    def searchTillUnexpanded(self, node):
+        while not node.needsExpand() and not node.state.isTerminal():
+            node = node.selectMove(self.cpuct)
+        return node
+
+    def batchMcts(self, states, evaluator = None):
+        '''
+        given a list of states (TreeNodes!) perform mcts search on them, running batched evaluations on them
+        returns a list of dict with move probabilities.
+        Each MCTS will build a tree that at most is movesToCheck big.
+        '''
+        
+        eva = evaluator
+        if eva == None:
+            eva = self.evaluator
+            
+        workspace = states
+        for _ in range(self.movesToCheck):
+            workspace = [self.searchTillUnexpanded(s) if s != None else None for s in workspace]
+            evalin = [(s.state, s.getPrevState()) if s != None else None for s in workspace]
+            evalout = eva.evaluate(evalin)
+            for idx, ev in enumerate(evalout):
+                node = workspace[idx]
+                if node == None:
+                    continue
+                w = ev[1]
+                if node.state.isTerminal():
+                    w = node.getTerminalResult()
+                else:
+                    node.expand(ev[0])
+                node.backup(w)
+                workspace[idx] = states[idx]
+
+
+
     '''
     given a starting state tree node return a distribution of probabilities over the moves to take
     in the starting state for approx. optimal play. The caller has to decide if it should exploit (i.e.
@@ -504,40 +674,30 @@ class NeuralMctsTrainer():
         if eva == None:
             eva = self.evaluator
         
-        stop = False
-        
         assert not s0.state.isTerminal()
         
 #         print(s0.state.mnk)
         
-        while not stop:
+        while True:
             while not current.needsExpand() and not current.state.isTerminal():
-                checkedMoves += 1
                 current = current.selectMove(self.cpuct)
                 
-#                 print(current.state.mnk)
-                
-                if checkedMoves >= self.movesToCheck:
-                    stop = True
-                    break
-                
-            if not stop:
-                current.expandEvalBack(eva)
-#             print("===")
+            checkedMoves += 1
+            current.expandEvalBack(eva)
+
             current = s0
-        
-        sumv = 0
-        for m in dict.keys(s0.edges):
-            e = s0.edges[m]
-            sumv += e.visitCount
-        
-        r = dict()
-        for m in dict.keys(s0.edges):
-            e = s0.edges[m]
-            r[m] = e.visitCount / float(sumv)
             
-#         print(r)
+            if checkedMoves >= self.movesToCheck:
+                break
             
+#             print("===")
+        
+        sumv = float(s0.allVisits)
+        
+        r = [0] * len(s0.edges)
+        for m in range(len(r)):
+            r[m] = s0.edges[m].visitCount / sumv
+        
         return r
     
     def loadIteration(self, i):
@@ -590,43 +750,37 @@ class NeuralMctsTrainer():
                     gresult[0] = 1
                 else:
                     gresult[1] = 1
+        
         return gresult
 
     #TODO this assumes a two player game for now...
     #for FFA style more player games would need to use half/half both player types and sum the wins of the types
     # todo why does mp not work here like it does in collecting games? wtf?
-    def isChampionDefeated(self, champion, challenger, pool, games=100):
+    def isChampionDefeated(self, champion, challenger, pool, games=200):
         championWins = 0
         challengerWins = 0
-        
-#         self.champion.net.cpu()
-#         self.champion.net.cpu()
-        
-#         if pool == None:
-        for g in range(games):
-            r = self.playChampionMatch(champion, challenger, g < games / 2)
-            championWins += r[0]
-            challengerWins += r[1]
-#         else:
 
-#         asyncs = []
-#         for g in range(games):
-#             asyncs.append(pool.apply_async(self.playChampionMatch, args=(champion, challenger, g < games / 2,)))
-#         for asy in asyncs:
-#             for r in asy.get():
-#                 championWins += r[0]
-#                 challengerWins += r[1]
+        if pool == None:
+            for g in range(games):
+                r = self.playChampionMatch(champion, challenger, g < games / 2)
+                championWins += r[0]
+                challengerWins += r[1]
+        else:
+            asyncs = []
+            for g in range(games):
+                asyncs.append(pool.apply_async(self.playChampionMatch, args=(champion, challenger, g < games / 2,)))
+            for asy in asyncs:
+                r = asy.get()
+                championWins += r[0]
+                challengerWins += r[1]
 
-#         self.champion.net.cuda()
-#         self.challenger.net.cuda()
-
+        eps = 0.0000001
         print("Champion won %i games, challenger won %i games. Challenger win rate is %f" % 
-              (championWins, challengerWins, challengerWins / float(challengerWins+championWins)))
+              (championWins, challengerWins, (challengerWins + eps) / float(eps + challengerWins+championWins)))
         if challengerWins > 0.55 * (championWins+challengerWins):
             print("A new champion was found. Progress was made.")
             return True
         return False
-    
 
     def iterateLearning(self, iterations, gamesPerIter, startingIteration=0, procs=4, dbgUniqueStates=False):
         f = None
@@ -645,24 +799,26 @@ class NeuralMctsTrainer():
             t = time.time()
             print("Iteration %i, collecting games" % i)
             
+            frames = self.collectNGameFramesBatched(gamesPerIter, self.learner.getBatchSize())
+            
 #             gamesPerProc = int(gamesPerIter / procs)
 #             missing = gamesPerIter % procs
-#             
+#              
 #             asyncs = []
-#             
+#              
 #             for pid in range(procs):
 #                 g = gamesPerProc
 #                 if pid == 0:
 #                     g += missing
 #                 asyncs.append(pool.apply_async(self.collectNGameFrames, args=(g,pid)))
-#             
+#              
 #             frames = []
-#             
+#              
 #             for asy in asyncs:
 #                 for f in asy.get():
 #                     frames.append(f)
             
-            frames = self.collectNGameFrames(gamesPerIter, 0)
+#             frames = self.collectNGameFrames(gamesPerIter, 0)
             
             print("%f frames per game" % (len(frames) / float(gamesPerIter)))
             
@@ -689,7 +845,7 @@ class NeuralMctsTrainer():
             print("Wins situation in played games is: ", winSums)
             
             if lastFrameSetUsed > 0:
-                del self.frameSets[0] 
+                del self.frameSets[0]
 
             if dbgUniqueStates:
                 # this is quite slow for larger frame numbers and lots of unique states. Too slow in fact
@@ -698,6 +854,8 @@ class NeuralMctsTrainer():
                 print("Among %i frames there are %i unique game states to learn from" % (len(frames), un))
             
             print("Iteration %i, collecting games took %f, training with %i frames..." % (i, time.time() - t, len(frames)))
+
+            exit(0)
 
             improved = False
             for r in range(self.trainingRuns):

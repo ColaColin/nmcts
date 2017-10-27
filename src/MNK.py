@@ -110,19 +110,25 @@ def playDemo(m = 3, n = 3, k = 3):
 class MNKState(AbstractState):
     def __init__(self, mnk):
         self.mnk = mnk
-    
-    def parseMove(self, move):
-        s = move.split("-")
-        x = int(s[0])
-        y = int(s[1])
-        return x, y
-    
+        self.moveKeys = []
+        # TODO this is a copy paste from the MNKLearner implementation
+        for x in range(self.mnk.m):
+            for y in range(self.mnk.n):
+                self.moveKeys.append((x, y))
+        
     def getWinner(self):
         return self.mnk.winningPlayer
 
+    def getMoveKey(self, x, y):
+        return self.moveKeys.index((x,y))
+
     def isMoveLegal(self, move):
-        x, y = self.parseMove(move)
+        x, y = self.moveKeys[move]
         return self.mnk.board[y][x] == -1
+
+    def describeMove(self, move):
+        x, y = self.moveKeys[move]
+        return str(x) + "-" + str(y)
 
     def getPlayerOnTurnIndex(self):
         return self.mnk.turn % 2
@@ -135,6 +141,9 @@ class MNKState(AbstractState):
     
     def getPlayerCount(self):
         return 2
+    
+    def getMoveCount(self):
+        return self.mnk.m * self.mnk.n
     
     def isEqual(self, other):
         assert self.mnk.m == other.mnk.m and self.mnk.n == other.mnk.n and self.mnk.k == other.mnk.k, "Why are these states with different rules even compared?"
@@ -151,7 +160,8 @@ class MNKState(AbstractState):
         return MNKState(self.mnk.clone())
         
     def simulate(self, move):
-        x, y = self.parseMove(move)
+        assert move >= 0 and move < len(self.moveKeys), "Unknown move index " + str(move) + " out of " + str(len(self.moveKeys))
+        x, y = self.moveKeys[move]
         self.mnk.place(x, y)
     
     def isTerminal(self):
@@ -193,12 +203,12 @@ class MNKNetworkLearner(AbstractTorchLearner):
         super(MNKNetworkLearner, self).__init__(framesPerIteration, batchSize, epochs)
         self.m = m
         self.n = n
-        self.moveNames = []
+        self.moveKeys = []
         self.hiddens = hiddens
         self.features = features
         for x in range(m):
             for y in range(n):
-                self.moveNames.append(str(x) + "-" + str(y))
+                self.moveKeys.append((x, y))
     
     def clone(self):
         c = MNKNetworkLearner(self.framesPerIteration, self.batchSize, self.epochs, self.m, self.n, self.hiddens, self.features)
@@ -216,14 +226,14 @@ class MNKNetworkLearner(AbstractTorchLearner):
     def getPlayerCount(self):
         return 2
     
-    def getMoveNames(self):
-        return self.moveNames
-
+    def getMoveCount(self):
+        return len(self.moveKeys)
+    
     def createNetwork(self):
         if self.features == -1:
-            return MLP(self.m * self.n, self.hiddens, len(self.moveNames), self.getPlayerCount())
+            return MLP(self.m * self.n, self.hiddens, len(self.moveKeys), self.getPlayerCount())
         else:
-            return CNN(self.m, self.n, self.features, self.hiddens, len(self.moveNames), self.getPlayerCount())
+            return CNN(self.m, self.n, self.features, self.hiddens, len(self.moveKeys), self.getPlayerCount())
     
     def createOptimizer(self, net):
         return optim.SGD(net.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0001, nesterov=True)
@@ -258,18 +268,17 @@ def mnkCreator():
     global m,n,k
     return MNKState(MNK(m,n,k))
 
-def playTrainerVsTrainer(trainerA, trainerB, m, n, k):
+def playTrainerVsTrainer(trainerA, trainerB, m, n, k, aNoise=0.2, bNoise=0.2):
     state = MNKState(MNK(m,n,k))
     while not state.isTerminal():
 #         print(state.mnk)
         if state.getTurn() % 2 == 0:
-            m = trainerA.findCompetitiveMove(state)
+            m = trainerA.findCompetitiveMove(state, noiseMix=aNoise)
         else:
-            m = trainerB.findCompetitiveMove(state)
+            m = trainerB.findCompetitiveMove(state, noiseMix=bNoise)
         state.simulate(m)
 #     print(state.mnk)
     return state.getWinner()
-
 
 def playVsAi(trainer, humanIndex=0):
     global m,n,k
@@ -278,10 +287,15 @@ def playVsAi(trainer, humanIndex=0):
         print(state.mnk)
         if state.getTurn() % 2 == humanIndex:
             tm = trainer.findCompetitiveMove(state)
-            print("Trainer would do " + tm)
+            print("Trainer would do " + state.describeMove(tm))
             m = input("Your move X-Y:")
+            ms = m.split("-")
+            x = int(ms[0])
+            y = int(ms[1])
+            m = state.getMoveKey(x, y)
         else:
             m = trainer.findCompetitiveMove(state)
+            print(m)
         state.simulate(m)
     print(state.mnk)
 
@@ -356,29 +370,35 @@ if __name__ == '__main__':
 #     for i in range(0, 6):
 #         compareIterations(5,5,4,1000,"/UltraKeks/Dev/LiClipse/WorkSpace/Test/src/vindinium/models/mnk", i, 7)
     
-    mlpLearnerA = MNKNetworkLearner(150000, 100, 10, m,n,h, features=features)
+    mlpLearnerA = MNKNetworkLearner(150000, 200, 10, m,n,h, features=features)
     trainerA = NeuralMctsTrainer(mnkCreator, mlpLearnerA,
                       mkpath(m, n, k, features),
-                      movesToCheckMin=400, movesToCheckMax=1200, moveToCheckIncreasePerIteration=50)
-         
-#     trainerA.loadIteration(4)
+                      movesToCheckMin=200, movesToCheckMax=200, moveToCheckIncreasePerIteration=50)
+
+#     trainerA.loadIteration(1)
 #     mlpLearnerA.initState(None)
-#  
-#     mlpLearnerB = MNKFlatNetworkLearner(100000, 100, 50, m,n,h)
+  
+#     mlpLearnerB = MNKNetworkLearner(150000, 200, 50, m,n,h,features=features)
 #     trainerB = NeuralMctsTrainer(mnkCreator, mlpLearnerB,
-#                       "/UltraKeks/Dev/LiClipse/WorkSpace/Test/src/vindinium/models/mnk"+str(m)+str(n)+str(k)+"h"+str(h),
-#                       movesToCheckMin=400, movesToCheckMax=800, moveToCheckIncreasePerIteration=50)
-#        
-#     trainerB.loadIteration(18) #TODO last one that is not weird, looks like okay play. What happened in iteration 8?!
-#     
-#     results = [0,0,0] 
-#     for _ in range(100):
-#         r = playTrainerVsTrainer(trainerA, trainerB, 3, 3, 3)
-#         print(r)
+#                       mkpath(m, n, k, features),
+#                       movesToCheckMin=250, movesToCheckMax=250, moveToCheckIncreasePerIteration=50)
+#          
+#     trainerB.loadIteration(1) #TODO last one that is not weird, looks like okay play. What happened in iteration 8?!
+#     mlpLearnerB.initState(None)
+#     an = 0
+#     bn = 0.3
+#     results = [0,0,0]
+#     for _ in range(500):
+#         r = playTrainerVsTrainer(trainerA, trainerB, m, n, k, aNoise=an, bNoise=bn)
+#         results[r] += 1
+#     for _ in range(500):
+#         r = playTrainerVsTrainer(trainerB, trainerA, m, n, k, aNoise=bn, bNoise=an)
+#         if r == 0:
+#             r = 1
+#         elif r == 1:
+#             r = 0
 #         results[r] += 1
 #     print(results)
-        
-    
 #     playVsAi(trainerA, 0)
 #     trainerA.demoPlayGames()
-    trainerA.iterateLearning(1, 10)
+    trainerA.iterateLearning(100, 200)
