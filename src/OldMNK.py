@@ -211,7 +211,7 @@ class MNKNetworkLearner(AbstractTorchLearner):
                 self.moveKeys.append((x, y))
     
     def clone(self):
-        c = MNKNetworkLearner(self.framesPerIteration, self.batchSize, self.epochs, self.m, self.n, self.hiddens, self.features)
+        c = MNKNetworkLearner(self.maxFramesLearntPerIteration, self.batchSize, self.epochs, self.m, self.n, self.hiddens, self.features)
         if self.net != None:
             c.initState(None)
             c.net.load_state_dict(self.net.state_dict())

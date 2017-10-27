@@ -141,12 +141,12 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def __init__(self, framesPerIteration, batchSize, epochs):
         assert framesPerIteration % batchSize == 0
 
-        self.framesPerIteration = framesPerIteration
+        self.maxFramesLearntPerIteration = framesPerIteration
         self.batchSize = batchSize
         self.epochs = epochs
     
     def getFramesPerIteration(self):
-        return self.framesPerIteration
+        return self.maxFramesLearntPerIteration
     
     @abc.abstractmethod
     def getNetInputShape(self):
@@ -196,9 +196,9 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         """
     
     def initState(self, file):
-        self.networkInput = torch.zeros((self.framesPerIteration,) + self.getNetInputShape()).pin_memory()
-        self.moveOutput = torch.zeros(self.framesPerIteration, self.getMoveCount()).pin_memory()
-        self.winOutput = torch.zeros(self.framesPerIteration, self.getPlayerCount()).pin_memory()
+        self.networkInput = torch.zeros((self.maxFramesLearntPerIteration,) + self.getNetInputShape()).pin_memory()
+        self.moveOutput = torch.zeros(self.maxFramesLearntPerIteration, self.getMoveCount()).pin_memory()
+        self.winOutput = torch.zeros(self.maxFramesLearntPerIteration, self.getPlayerCount()).pin_memory()
         self.net = self.createNetwork()
         self.opt = self.createOptimizer(self.net)
         
@@ -212,7 +212,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         torch.save(self.net.state_dict(), file)
     
     def evaluate(self, batch):
-        assert len(batch) <= self.framesPerIteration
+        assert len(batch) <= self.maxFramesLearntPerIteration
         
         for idx, b in enumerate(batch):
             if b != None:
@@ -258,7 +258,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[2][pid]
     
     def learnFromFrames(self, frames, dbg=False):
-        assert(len(frames) <= self.framesPerIteration)
+        assert(len(frames) <= self.maxFramesLearntPerIteration)
         self.fillTrainingSet(frames)
         
         batchNum = int(len(frames) / self.batchSize)
