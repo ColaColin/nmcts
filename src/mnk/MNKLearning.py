@@ -123,17 +123,17 @@ if __name__ == '__main__':
     f = 128
     h = 400
     
-    epochs = 10
-    epochRuns = 2
+    epochs = 15
+    epochRuns = 3
     bsize = 200
     mctsExpansions = 200
     cgames = 500
     threads = 5
     
-    learner = MNKNetworkLearner(100000, bsize, epochs, m,n,h,features=f)
+    learner = MNKNetworkLearner(125000, bsize, epochs, m,n,h,features=f)
     player = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f), championGames=cgames, batchSize=bsize, threads=threads)
     
 #     player.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
     
-    trainer.iterateLearning(5000, 20, startAtIteration=0)
+    trainer.iterateLearning(5000, 20, startAtIteration=2)
