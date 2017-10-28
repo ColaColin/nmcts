@@ -17,8 +17,6 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-import time
-
 from nmcts.MctsTree import TreeNode
 
 class NeuralMctsPlayer():
@@ -50,7 +48,7 @@ class NeuralMctsPlayer():
         assert len(ms) > 0, "The state should have legal moves"
         
         for idx in range(len(ps)):
-            ps[idx] /= psum
+            ps[idx] /= float(psum)
         
         if explore:
             m = np.random.choice(ms, p = ps)
@@ -94,9 +92,9 @@ class NeuralMctsPlayer():
         states is expected to be an array of game states. TreeNodes will be put around them.
         the result is an array of moveIndices
         """
-        ts = [TreeNode(s, noiseMix=noiseMix) for s in states]
+        ts = [TreeNode(s, noiseMix=noiseMix) if s != None else None for s in states]
         self.batchMcts(ts)
-        return [self._pickMove(s.getMoveDistribution(), s.state, False) for s in ts]
+        return [self._pickMove(s.getMoveDistribution(), s.state, False) if s != None else None for s in ts]
         
     def playVsHuman(self, state, humanIndex, otherPlayers, stateFormatter, commandParser):
         """
@@ -220,7 +218,6 @@ class NeuralMctsPlayer():
                 pIndex = turn % len(allPlayers)
                 player = allPlayers[pIndex]
                 player.batchMcts(batch)
-                
                 turn += 1
                 
                 for idx in range(batchSize):

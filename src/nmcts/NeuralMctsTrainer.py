@@ -17,7 +17,7 @@ import pickle
 class NeuralMctsTrainer():
     
     def __init__(self, nplayer, epochRuns, workingdir, championGames=500, batchSize=200, threads=5):
-        self.bestPlayer = nplayer
+        self.bestPlayer = nplayer.clone()
         self.learner = nplayer
         self.epochRuns = epochRuns
         self.workingdir = workingdir
@@ -47,6 +47,8 @@ class NeuralMctsTrainer():
             r, _ = asy.get()
             for i in range(len(r)):
                 sumResults[i] += r[i]
+        
+        print("first move only", sumResults)
         
         for asy in asyncsInverted:
             r, _ = asy.get()
