@@ -86,6 +86,7 @@ class NeuralMctsPlayer():
                 node.backup(w)
                 workspace[idx] = states[idx]
     
+    # todo if one could get the caller to deal with the treenode data it might be possible to not throw away the whole tree that was build, increasing play strength
     def findBestMoves(self, states, noiseMix=0.2):
         """
         searches for the best moves to play in the given states
@@ -179,14 +180,16 @@ class NeuralMctsPlayer():
         
     def playAgainst(self, n, batchSize, others, collectFrames=False):
         """
-        play against other neural mcts players, in batches. 
+        play against other neural mcts players, in batches.
         Since two players are used this requires more of a lock-step kind of approach, which makes
         it less efficient than self play!
         returns a pair of:
             the number of wins, losses and draws ordered as [self] + others with the last position representing draws
             a list of lists with the frames of all games, if collectFrames = True
         The overall number of players should fit with the game used.
-        No exploration is done here
+        No exploration is done here.
+        
+        !!!Remember that if the game has a first move advantage than one call of this method is probably not enough to fairly compare two players!!!
         """
         
         assert n % batchSize == 0
@@ -238,6 +241,7 @@ class NeuralMctsPlayer():
                         results[b.state.getWinner()] += 1
                         batch[idx] = None
                     else:
+                        b.cutTree()
                         batch[idx] = b
         
         return results, gameFrames

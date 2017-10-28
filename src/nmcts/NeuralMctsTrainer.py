@@ -37,11 +37,11 @@ class NeuralMctsTrainer():
         bsize = gamesPerProc 
         
         asyncs = []
-        for pid in range(self.threads):
-            g = gamesPerProc
-            if pid == 0:
-                g += missing
+        asyncsInverted = []
+        for _ in range(self.threads):
+            g = gamesPerProc / 2
             asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, bsize, [self.bestPlayer])))
+            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, bsize, [self.learner])))
         
         sumResults = [0,0,0]
         
@@ -49,6 +49,12 @@ class NeuralMctsTrainer():
             r, _ = asy.get()
             for i in range(len(r)):
                 sumResults[i] += r[i]
+        
+        for asy in asyncsInverted:
+            r, _ = asy.get()
+            sumResults[0] += r[1]
+            sumResults[1] += r[0]
+            sumResults[2] += r[2]
         
         myWins = sumResults[0]
         otherWins = sum(sumResults[1:-1])
@@ -104,10 +110,13 @@ class NeuralMctsTrainer():
         print("Collected %i games with %i frames in %f" % (games, len(self.frameSets[-1]), (time.time() - t)))
         
         t = time.time()
-        for _ in range(self.epochRuns):
+        runs = self.epochRuns
+        while runs > 0:
+            runs -= 1
             self.learner.learner.learnFromFrames(frames)
             if self.learnerIsNewChampion():
                 self.bestPlayer = self.learner.clone()
+                runs += 1
 
         print("Done learning in %f" % (time.time() - t))
 

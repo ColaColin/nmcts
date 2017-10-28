@@ -31,6 +31,23 @@ class TreeNode():
         self.isExpanded = False
         self.allVisits = 0
         
+        
+    def cutTree(self):
+        """
+        deletes all children, reducing the tree to the root
+        resets all counters
+        meant to be used when different solvers are used in an alternating fashion on the same tree.
+        maybe instead a completely different tree should be used for each solver. But meh.
+        Training does reuse the trees, test play doesn't. Better than nothing...
+        """
+        self.edges = [None] * self.state.getMoveCount()
+        self.parent = None
+        self.terminalResult = None
+        self.movePMap = None
+        self.isExpanded = False
+        self.allVisits = 0
+        
+        
     def countTreeSize(self):
         c = 1
         for e in self.edges:
