@@ -6,8 +6,7 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-from AbstractState import AbstractState  # @UnresolvedImport
-
+from nmcts.AbstractState import AbstractState  # @UnresolvedImport
 
 class TreeEdge():
     def __init__(self, priorP, parentNode):
@@ -64,16 +63,6 @@ class TreeNode():
             if e != None:
                 r[m] = e.visitCount / sumv
         
-        return r
-    
-    def getWinnerEncoding(self):
-        r = [0] * self.state.getPlayerCount()
-        winner = self.state.getWinner()
-        if winner != -1:
-            r[winner] = 1
-        else:
-            for idx in range(self.state.getPlayerCount()):
-                r[idx] = 1.0 / self.state.getPlayerCount()
         return r
     
     def selectMove(self, cpuct):

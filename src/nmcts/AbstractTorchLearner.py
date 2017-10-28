@@ -11,7 +11,7 @@ import torch
 from torch.autograd import Variable
 import numpy as np
 
-from AbstractLearner import AbstractLearner  # @UnresolvedImport
+from nmcts.AbstractLearner import AbstractLearner  # @UnresolvedImport
 
 class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def __init__(self, framesPerIteration, batchSize, epochs):
@@ -88,7 +88,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         
         for idx, b in enumerate(batch):
             if b != None:
-                state, _ = b
+                state = b
                 self.fillNetworkInput(state, self.networkInput, idx)
         
         netIn = Variable(self.networkInput[:len(batch)]).cuda()
@@ -97,8 +97,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         results = []
         for bidx, b in enumerate(batch):
             if b != None:
-                state, _ = b
-                
+                state = b
                 
                 r = moveP.data[bidx]
                 assert r.is_cuda #this is here because a copy is needed and I want to make sure r is gpu, so cpu() yields a copy

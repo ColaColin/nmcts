@@ -17,15 +17,20 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-from MctsTree import TreeNode  # @UnresolvedImport
+import time
 
+from nmcts.MctsTree import TreeNode
 
 class NeuralMctsPlayer():
-    def __init__(self, mctsExpansions, learner):
+    def __init__(self, stateTemplate, mctsExpansions, learner):
+        self.stateTemplate = stateTemplate.clone()
         self.mctsExpansions = mctsExpansions # a value of 1 here will make it basically play by the network probabilities in a greedy way #TODO test that
-        assert mctsExpansions > 0
         self.learner = learner
-        self.cpuct = 1.0 #hmm TODO: investigate the influence of this factor to speed of learning
+        self.cpuct = 1.0 #hmm TODO: investigate the influence of this factor on the speed of learning
+
+    def clone(self):
+        return NeuralMctsPlayer(self.stateTemplate, self.mctsExpansions, 
+                                self.learner.clone())
 
     def _selectDown(self, node):
         while not node.needsExpand() and not node.state.isTerminal():
@@ -42,7 +47,7 @@ class NeuralMctsPlayer():
                 ps.append(p)
                 psum += p
 
-        assert len(ms) > 0, "The state should have legal moves or be terminal"
+        assert len(ms) > 0, "The state should have legal moves"
         
         for idx in range(len(ps)):
             ps[idx] /= psum
@@ -62,7 +67,9 @@ class NeuralMctsPlayer():
         runs batched mcts guided by the learner
         yields a result for each state in the batch
         states is expected to be an array of TreeNode(state)
+        those TreeNodes will be changed as a result of the call
         """
+        assert self.mctsExpansions > 0
         workspace = states
         for _ in range(self.mctsExpansions):
             workspace = [self._selectDown(s) if s != None else None for s in workspace]
@@ -90,26 +97,149 @@ class NeuralMctsPlayer():
         self.batchMcts(ts)
         return [self._pickMove(s.getMoveDistribution(), s.state, False) for s in ts]
         
-    def playVsHuman(self, state, stateFormatter, commandParser):
+    def playVsHuman(self, state, humanIndex, otherPlayers, stateFormatter, commandParser):
         """
         play a game from the given state vs a human using the given command parser function,
         which given a string from input is expected to return a valid move or -1 as a means to signal
         an invalid input.
         stateFormatter is expected to be a function that returns a string given a state
         """
+        allPlayers = [self] + otherPlayers
+        allPlayers.insert(humanIndex, None)
+        
+        while not state.isTerminal():
+            print(stateFormatter(state))
+            player = allPlayers[state.getTurn() % len(allPlayers)]
+            if player != None: #AI player
+                m = player.findBestMoves([state])[0]
+            else:
+                m = -1
+                while m == -1:
+                    m = commandParser(input("Your turn:"))
+                    if m == -1:
+                        print("That cannot be parsed, try again.")
+            state.simulate(m)
+            
+        print("Game over")
+        print(stateFormatter(state))
+        
         
     def selfPlayNGames(self, n, batchSize):
         """
-        plays n games against itself using more extensive exploration (i.e. pick move probabilistic)
+        plays n games against itself using more extensive exploration (i.e. pick move probabilistic if state reports early game)
         used to generate games for playing
         """
         
-    def playAgainst(self, n, batchSize, others):
+        gamesLeft = n
+        gamesRunning = 0
+        frames = []
+        
+        batch = []
+        bframes = []
+        for _ in range(batchSize):
+            if gamesLeft > gamesRunning:
+                batch.append(TreeNode(self.stateTemplate.clone()))
+                gamesRunning += 1
+            else:
+                batch.append(None)
+            bframes.append([])
+        
+        while gamesLeft > 0:
+            self.batchMcts(batch)
+            
+            for idx in range(batchSize):
+                b = batch[idx]
+                if b == None:
+                    continue
+                md = b.getMoveDistribution()
+                if b.state.getTurn() > 0:
+                    bframes[idx].append((b.state.clone(), md))
+                mv = self._pickMove(md, b.state, b.state.isEarlyGame())
+                b = b.getChildForMove(mv)
+                
+                if b.state.isTerminal():
+                    for f in bframes[idx]:
+                        frames.append(f + (b.getTerminalResult(), ))
+                    bframes[idx] = []
+                    gamesLeft -= 1
+                    gamesRunning -= 1
+                    if gamesRunning < gamesLeft:
+                        batch[idx] = TreeNode(self.stateTemplate.clone())
+                        gamesRunning += 1
+                    else:
+                        batch[idx] = None
+                else:
+                    batch[idx] = b
+                    
+                if gamesLeft <= 0:
+                    break
+                
+        return frames
+        
+        
+    def playAgainst(self, n, batchSize, others, collectFrames=False):
         """
-        play against other neural mcts players, in batches
-        returns the number of wins, losses and draws in that order from the perspective of this player.
-        The overall number of players should fit with the game state used. 
+        play against other neural mcts players, in batches. 
+        Since two players are used this requires more of a lock-step kind of approach, which makes
+        it less efficient than self play!
+        returns a pair of:
+            the number of wins, losses and draws ordered as [self] + others with the last position representing draws
+            a list of lists with the frames of all games, if collectFrames = True
+        The overall number of players should fit with the game used.
+        No exploration is done here
         """
-    
-    
+        
+        assert n % batchSize == 0
+
+        batchCount = int(n / batchSize)
+        
+        results = [0] * (2+len(others)) # the last index stands for draws, which are indexed with -1
+        
+        allPlayers = [self] + others
+        
+        gameFrames = []
+        if collectFrames:
+            for _ in range(n):
+                gameFrames.append([])
+        
+        for bi in range(batchCount):
+            
+            gamesActive = 0
+            batch = []
+            
+            for _ in range(batchSize):
+                batch.append(TreeNode(self.stateTemplate.clone()))
+                gamesActive += 1
+            
+            turn = 0
+            
+            while gamesActive > 0:
+                pIndex = turn % len(allPlayers)
+                player = allPlayers[pIndex]
+                player.batchMcts(batch)
+                
+                turn += 1
+                
+                for idx in range(batchSize):
+                    b = batch[idx]
+                    if b == None:
+                        continue
+                    md = b.getMoveDistribution()
+                    
+                    if collectFrames:
+                        gameIndex = batchSize * bi + idx
+                        gameFrames[gameIndex].append(b.state.clone())
+                    
+                    mv = self._pickMove(md, b.state, False)
+                    b = b.getChildForMove(mv)
+                    
+                    if b.state.isTerminal():
+                        gamesActive -= 1
+                        results[b.state.getWinner()] += 1
+                        batch[idx] = None
+                    else:
+                        batch[idx] = b
+        
+        return results, gameFrames
+        
     
