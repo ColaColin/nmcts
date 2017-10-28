@@ -34,14 +34,12 @@ class NeuralMctsTrainer():
         
         assert missing == 0, str(missing) + " != " + 0
         
-        bsize = gamesPerProc 
-        
         asyncs = []
         asyncsInverted = []
         for _ in range(self.threads):
-            g = gamesPerProc / 2
-            asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, bsize, [self.bestPlayer])))
-            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, bsize, [self.learner])))
+            g = int(gamesPerProc / 2)
+            asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, g, [self.bestPlayer])))
+            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, g, [self.learner])))
         
         sumResults = [0,0,0]
         
@@ -70,15 +68,14 @@ class NeuralMctsTrainer():
         
         gamesPerProc = int(games / self.threads)
         missing = games % self.threads
+        assert missing == 0 #just be careful...
         
         print("Games per process: " + str(gamesPerProc))
         
         asyncs = []
         
-        for pid in range(self.threads):
+        for _ in range(self.threads):
             g = gamesPerProc
-            if pid == 0:
-                g += missing
             asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize)))
             
         frames= []

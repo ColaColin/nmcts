@@ -126,7 +126,7 @@ if __name__ == '__main__':
     epochs = 10
     epochRuns = 2
     bsize = 200
-    mctsExpansions = 250
+    mctsExpansions = 200
     cgames = 500
     threads = 5
     
@@ -136,4 +136,4 @@ if __name__ == '__main__':
     
 #     player.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
     
-    trainer.iterateLearning(5000, 20, startAtIteration=5)
+    trainer.iterateLearning(5000, 20, startAtIteration=0)
