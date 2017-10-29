@@ -129,7 +129,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
     
     def learnFromFrames(self, frames, dbg=False):
-        assert(len(frames) <= self.maxFramesLearntPerIteration)
+        assert(len(frames) <= self.maxFramesLearntPerIteration), str(len(frames)) + "/" + str(self.maxFramesLearntPerIteration)
         self.fillTrainingSet(frames)
         
         batchNum = int(len(frames) / self.batchSize)

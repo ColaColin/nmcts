@@ -117,25 +117,28 @@ def mkpath(m, n, k, h, f):
 if __name__ == '__main__':
     mp.set_start_method("spawn")
     
-    m = 5
-    n = 5
-    k = 4
+    m = 6
+    n = 6
+    k = 5
     f = 128
-    h = 400
+    h = 750
     
     epochs = 15
     epochRuns = 2
     bsize = 200
-    mctsExpansions = 500
+    mctsExpansions = 342
     cgames = 500
     threads = 5
-    learner = MNKNetworkLearner(175000, bsize, epochs, m,n,h,features=f)
+    learner = MNKNetworkLearner(100000, bsize, epochs, m,n,h,features=f)
     player = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner)
-    trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f), 
+    trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f),
                                 championGames=cgames, batchSize=bsize, threads=threads)
      
-#     player.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
-     
-    trainer.iterateLearning(5000, 2000, startAtIteration=11)
+    trainer.iterateLearning(2000, 2000, startAtIteration=0)
+
+#     trainer.loadForIteration(14)
+#     trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
+
+
 
 

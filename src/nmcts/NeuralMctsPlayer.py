@@ -60,6 +60,14 @@ class NeuralMctsPlayer():
         evalin = [s.state if s != None else None for s in states]
         return self.learner.evaluate(evalin) 
 
+    def getBatchMctsResults(self, frames, startIndex):
+        nodes = [TreeNode(n[0]) for n in frames]
+        self.batchMcts(nodes)
+        result = []
+        for idx, f in enumerate(nodes):
+            result.append(( startIndex + idx, f.getMoveDistribution(), f.getBestValue() ))
+        return result
+
     def batchMcts(self, states):
         """
         runs batched mcts guided by the learner
@@ -152,13 +160,13 @@ class NeuralMctsPlayer():
                     continue
                 md = b.getMoveDistribution()
                 if b.state.getTurn() > 0:
-                    bframes[idx].append((b.state.clone(), md, b.getBestValue()))
+                    bframes[idx].append([b.state.clone(), md, b.getBestValue()])
                 mv = self._pickMove(md, b.state, b.state.isEarlyGame())
                 b = b.getChildForMove(mv)
                 
                 if b.state.isTerminal():
                     for f in bframes[idx]:
-                        frames.append(f + (b.getTerminalResult(), ))
+                        frames.append(f + [b.getTerminalResult()])
                     bframes[idx] = []
                     gamesLeft -= 1
                     gamesRunning -= 1

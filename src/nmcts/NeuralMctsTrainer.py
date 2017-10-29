@@ -68,23 +68,28 @@ class NeuralMctsTrainer():
     
     def updateFrameHistory(self, updateTargets):
         if updateTargets:
-            frameNodes = [TreeNode(f[0]) for f in self.frameHistory]
-            batches = int((len(frameNodes) / self.batchSize) + 0.5)
+            bsize = self.batchSize * 4
+            batches = int((len(self.frameHistory) / bsize) + 0.5)
+            asyncs = []
             for bi in range(batches):
-                print("Update batch %i of %i" % (bi, batches))
-                self.bestPlayer.batchMcts(frameNodes[bi * self.batchSize : (bi+1) * self.batchSize])
-                
-            for idx, fnode in enumerate(frameNodes):
-                self.frameHistory[idx][1] = fnode.getMoveDistribution()
-                self.frameHistory[idx][2] = fnode.getBestValue()
-        
+                asyncs.append(self.pool.apply_async(self.bestPlayer.getBatchMctsResults,
+                                      args=(self.frameHistory[bi * bsize : (bi+1) * bsize], bi * bsize)))
+            for asy in asyncs:
+                for f in asy.get():
+                    self.frameHistory[f[0]][1] = f[1]
+                    self.frameHistory[f[0]][2] = f[2]
+                    
         self.frameHistory.sort(key=lambda f: f[2])
+        print("Best win chance in the frames is "+str(self.frameHistory[-1][2]))
         hwin = 0
+        rmCount = 0
         while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
+            assert hwin <= self.frameHistory[0][2]
             hwin = self.frameHistory[0][2]
+            rmCount += 1
             del self.frameHistory[0]
             
-        print("Highest win chance removed was " + str(hwin))
+        print("Highest win chance removed was %i, removed %i frames" % (hwin, rmCount))
     
     def doLearningIteration(self, games):
         t = time.time()
@@ -128,7 +133,7 @@ class NeuralMctsTrainer():
             
             random.shuffle(learnFrames)
             
-            self.learner.learner.learnFromFrames(self.frameHistory)
+            self.learner.learner.learnFromFrames(learnFrames)
             if self.learnerIsNewChampion():
                 self.bestPlayer = self.learner.clone()
                 improved = True
