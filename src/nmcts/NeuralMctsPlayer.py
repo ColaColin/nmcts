@@ -152,7 +152,7 @@ class NeuralMctsPlayer():
                     continue
                 md = b.getMoveDistribution()
                 if b.state.getTurn() > 0:
-                    bframes[idx].append((b.state.clone(), md))
+                    bframes[idx].append((b.state.clone(), md, b.getBestValue()))
                 mv = self._pickMove(md, b.state, b.state.isEarlyGame())
                 b = b.getChildForMove(mv)
                 

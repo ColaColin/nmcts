@@ -126,7 +126,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 self.moveOutput[fidx, idx] = p
             
             for pid in range(frame[0].getPlayerCount()):
-                self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[2][pid]
+                self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
     
     def learnFromFrames(self, frames, dbg=False):
         assert(len(frames) <= self.maxFramesLearntPerIteration)
@@ -137,11 +137,9 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         if dbg:
             print(len(frames), self.batchSize, batchNum)
 
-        print("Running nan asserts....")
         assert torch.sum(self.networkInput.ne(self.networkInput)) == 0
         assert torch.sum(self.moveOutput.ne(self.moveOutput)) == 0
         assert torch.sum(self.winOutput.ne(self.winOutput)) == 0
-        print("DONE")
         
         nIn = Variable(self.networkInput).cuda()
         mT = Variable(self.moveOutput).cuda()

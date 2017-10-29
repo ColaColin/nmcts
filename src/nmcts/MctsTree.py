@@ -12,7 +12,7 @@ class TreeEdge():
     def __init__(self, priorP, parentNode):
         self.visitCount = 0
         self.totalValue = 0
-        self.meanValue = 0 #TODO should the default not be 0.5 instead of zero? The values go from 0 to 1 after all. 0 is pretty pessimistic
+        self.meanValue = 0.5 #TODO should the default not be 0.5 instead of zero? The values go from 0 to 1 after all. 0 is pretty pessimistic
         self.priorP = priorP
         self.parentNode = parentNode
         self.childNode = None
@@ -31,6 +31,12 @@ class TreeNode():
         self.isExpanded = False
         self.allVisits = 0
         
+    def getBestValue(self):
+        bv = 0
+        for e in self.edges:
+            if e != None and e.meanValue > bv:
+                bv = e.meanValue
+        return bv
         
     def cutTree(self):
         """
@@ -46,7 +52,6 @@ class TreeNode():
         self.movePMap = None
         self.isExpanded = False
         self.allVisits = 0
-        
         
     def countTreeSize(self):
         c = 1

@@ -5,10 +5,10 @@ Created on Oct 28, 2017
 '''
 
 
-from nmcts.AbstractTorchLearner import AbstractTorchLearner
-from nmcts.NeuralMctsTrainer import NeuralMctsTrainer
-from nmcts.NeuralMctsPlayer import NeuralMctsPlayer
-from mnk.MNKGame import MNK, MNKState
+from nmcts.AbstractTorchLearner import AbstractTorchLearner  # @UnresolvedImport
+from nmcts.NeuralMctsTrainer import NeuralMctsTrainer  # @UnresolvedImport
+from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
+from mnk.MNKGame import MNK, MNKState  # @UnresolvedImport
 
 import torch.nn as nn
 import torch.optim as optim
@@ -119,23 +119,23 @@ if __name__ == '__main__':
     
     m = 5
     n = 5
-    k = 3
-    f = -1
-    h = 1500
+    k = 4
+    f = 128
+    h = 400
     
-    epochs = 10
-    epochRuns = 5
+    epochs = 15
+    epochRuns = 2
     bsize = 200
-    mctsExpansions = 100
+    mctsExpansions = 500
     cgames = 500
     threads = 5
-    learner = MNKNetworkLearner(125000, bsize, epochs, m,n,h,features=f)
+    learner = MNKNetworkLearner(175000, bsize, epochs, m,n,h,features=f)
     player = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f), 
                                 championGames=cgames, batchSize=bsize, threads=threads)
      
 #     player.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
      
-    trainer.iterateLearning(6000, 20, startAtIteration=0)
+    trainer.iterateLearning(5000, 2000, startAtIteration=11)
 
 
