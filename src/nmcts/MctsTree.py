@@ -12,6 +12,8 @@ class TreeEdge():
     def __init__(self, priorP, parentNode):
         self.visitCount = 0
         self.totalValue = 0
+        # TODO have a look at modelling this as a distribution instead of a mean.
+        # see arXiv 1707.06887 as detailed inspiration. How to apply that to MCTS?
         self.meanValue = 0.5 #TODO should the default not be 0.5 instead of zero? The values go from 0 to 1 after all. 0 is pretty pessimistic
         self.priorP = priorP
         self.parentNode = parentNode
@@ -96,9 +98,13 @@ class TreeNode():
 
         dirNoise = np.random.dirichlet(self.dconst)
         
+        foundLegalMove = False
+        
         for idx in range(self.state.getMoveCount()):
             if not self.state.isMoveLegal(idx):
                 continue
+            
+            foundLegalMove = True
             
             e = self.edges[idx]
             
@@ -107,10 +113,11 @@ class TreeNode():
                 p = e.priorP
                 vc = e.visitCount
             else:
-                q = 0
+                q = 0.5
                 p = self.movePMap[idx]
                 vc = 0
             
+            #q = (q * 2.0) - 1.0
             p = (1-self.noiseMix) * p + self.noiseMix * dirNoise[idx]
             
             # .01 means that in the case of a new node with zero visits it will chose whatever has the best P
@@ -121,7 +128,9 @@ class TreeNode():
             if (moveName == None or value > moveValue):
                 moveName = idx
                 moveValue = value
-
+                
+        assert foundLegalMove
+        
         if self.edges[moveName] == None:
             self.edges[moveName] = TreeEdge(self.movePMap[moveName], self)
 

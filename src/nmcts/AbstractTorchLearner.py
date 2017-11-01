@@ -14,9 +14,10 @@ import numpy as np
 from nmcts.AbstractLearner import AbstractLearner  # @UnresolvedImport
 
 class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
-    def __init__(self, framesPerIteration, batchSize, epochs):
+    def __init__(self, framesPerIteration, batchSize, epochs, lr_schedule):
         assert framesPerIteration % batchSize == 0
 
+        self.lr_schedule = lr_schedule
         self.maxFramesLearntPerIteration = framesPerIteration
         self.batchSize = batchSize
         self.epochs = epochs
@@ -41,6 +42,12 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         """
         returns the number of possible moves a player can make
         """
+    
+    def getLrForIteration(self, iteration):
+        """
+        return the learning rate to be used for the given iteration
+        """
+        return self.lr_schedule[iteration]
     
     def getBatchSize(self):
         return self.batchSize
@@ -128,7 +135,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
             for pid in range(frame[0].getPlayerCount()):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
     
-    def learnFromFrames(self, frames, dbg=False):
+    def learnFromFrames(self, frames, iteration, dbg=False):
         assert(len(frames) <= self.maxFramesLearntPerIteration), str(len(frames)) + "/" + str(self.maxFramesLearntPerIteration)
         self.fillTrainingSet(frames)
         
@@ -144,6 +151,12 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         nIn = Variable(self.networkInput).cuda()
         mT = Variable(self.moveOutput).cuda()
         wT = Variable(self.winOutput).cuda()
+        
+        lr = self.getLrForIteration(iteration)
+        for param_group in self.opt.param_groups:
+            param_group['lr'] = lr
+        
+        print("learning rate for iteration %i is %f" % (iteration, lr))
         
         for e in range(self.epochs):
             mls = []

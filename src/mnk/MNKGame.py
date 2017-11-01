@@ -113,7 +113,9 @@ class MNKState(AbstractState):
     
     def isEarlyGame(self):
         # TODO: hmmmm how does this affect things actually?!
-        return True #self.mnk.turn < self.mnk.m * self.mnk.n * 0.75
+        c = max(self.mnk.m, self.mnk.n)
+        c += c % 2
+        return self.mnk.turn < c#True #self.mnk.turn < self.mnk.m * self.mnk.n * 0.75
     
     def getPlayerCount(self):
         return 2

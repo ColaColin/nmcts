@@ -187,10 +187,10 @@ class NeuralMctsPlayer():
     def playAgainst(self, n, batchSize, others, collectFrames=False):
         """
         play against other neural mcts players, in batches.
-        Since two players are used this requires more of a lock-step kind of approach, which makes
+        Since multiple players are used this requires more of a lock-step kind of approach, which makes
         it less efficient than self play!
         returns a pair of:
-            the number of wins, losses and draws ordered as [self] + others with the last position representing draws
+            the number of wins and draws ordered as [self] + others with the last position representing draws
             a list of lists with the frames of all games, if collectFrames = True
         The overall number of players should fit with the game used.
         No exploration is done here.
@@ -234,14 +234,20 @@ class NeuralMctsPlayer():
                         continue
                     md = b.getMoveDistribution()
                     
+                    gameIndex = batchSize * bi + idx
+                    
                     if collectFrames:
-                        gameIndex = batchSize * bi + idx
-                        gameFrames[gameIndex].append(b.state.clone())
+                        gameFrames[gameIndex].append([b.state.clone(), md, b.getBestValue()])
                     
                     mv = self._pickMove(md, b.state, False)
                     b = b.getChildForMove(mv)
                     
                     if b.state.isTerminal():
+                        
+                        if collectFrames:
+                            for f in gameFrames[gameIndex]:
+                                f.append(b.getTerminalResult())
+                                
                         gamesActive -= 1
                         results[b.state.getWinner()] += 1
                         batch[idx] = None

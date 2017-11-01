@@ -46,8 +46,8 @@ class CNN(nn.Module):
 
 class MNKNetworkLearner(AbstractTorchLearner):
     
-    def __init__(self, framesPerIteration, batchSize, epochs, m, n, hiddens, features = -1):
-        super(MNKNetworkLearner, self).__init__(framesPerIteration, batchSize, epochs)
+    def __init__(self, framesPerIteration, batchSize, epochs, m, n, hiddens, lr_schedule, features = -1):
+        super(MNKNetworkLearner, self).__init__(framesPerIteration, batchSize, epochs, lr_schedule)
         self.m = m
         self.n = n
         self.moveKeys = MNKState(MNK(m,n,3)).moveKeys
@@ -57,7 +57,7 @@ class MNKNetworkLearner(AbstractTorchLearner):
     
     def clone(self):
         c = MNKNetworkLearner(self.maxFramesLearntPerIteration, self.batchSize, 
-                              self.epochs, self.m, self.n, self.hiddens, self.features)
+                              self.epochs, self.m, self.n, self.hiddens, self.lr_schedule, self.features)
         if self.net != None:
             c.initState(None)
             c.net.load_state_dict(self.net.state_dict())
@@ -82,7 +82,8 @@ class MNKNetworkLearner(AbstractTorchLearner):
             return CNN(self.m, self.n, self.features, self.hiddens, len(self.moveKeys), self.getPlayerCount())
     
     def createOptimizer(self, net):
-        return optim.SGD(net.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0001, nesterov=True)
+        # lr is set before first use elsewhere
+        return optim.SGD(net.parameters(), lr=0.01, momentum=0.9, weight_decay=0.0001, nesterov=True)
 #         return optim.Adam(net.parameters(), lr=0.001)
     
     def fillNetworkInput(self, state, tensor, batchIndex):
@@ -114,28 +115,56 @@ def mkpath(m, n, k, h, f):
     else:
         return "/UltraKeks/Dev/git/nmcts/src/models/mnk"+str(m)+str(n)+str(k)+"cnn"+str(f)+"h"+str(h)
     
+    
 if __name__ == '__main__':
     mp.set_start_method("spawn")
+    
+    maxIter = 2000
+    framesPerIter = 125000
+    gamesPerIter = 2000
     
     m = 6
     n = 6
     k = 5
-    f = 128
-    h = 750
+    f = 150
+    h = 1337
     
-    epochs = 15
-    epochRuns = 2
+    lrs = [0.1] * 3 + [0.05] * 5 + [0.005] * 10 + [0.001] * maxIter
+    epochs = 10
+    epochRuns = 3
     bsize = 200
-    mctsExpansions = 342
+    mctsExpansions = 642
+    print("Using %i nodes per search tree" % mctsExpansions)
     cgames = 500
     threads = 5
-    learner = MNKNetworkLearner(100000, bsize, epochs, m,n,h,features=f)
+    learner = MNKNetworkLearner(framesPerIter, bsize, epochs, m,n,h,lrs,features=f)
     player = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f),
                                 championGames=cgames, batchSize=bsize, threads=threads)
-     
-    trainer.iterateLearning(2000, 2000, startAtIteration=0)
 
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=32)
+
+
+## compare different iterations
+#     learner0 = MNKNetworkLearner(framesPerIter, bsize, epochs, m, n, h, lrs, features=f)
+#     player0 = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner0)
+#     trainer0 = NeuralMctsTrainer(player0, epochRuns, mkpath(m, n, k, h, f),
+#                                  championGames=cgames, batchSize = bsize, threads=threads)
+#     trainer0.loadForIteration(0)
+#     upTo = 21
+#     for i in range(1, upTo+1):
+#         trainer.loadForIteration(i)
+#         print("Playing with " + str(i))
+#         results, _ = trainer.bestPlayer.playAgainst(50, 50, [trainer0.bestPlayer])
+#         resultsInv, _ = trainer0.bestPlayer.playAgainst(50, 50, [trainer.bestPlayer])
+#         print("Results %i vs %i are " % (i, 0), results)
+#         print("Results %i vs %i are " % (0, i), resultsInv)
+#         iWins = results[0] + resultsInv[1]
+#         oWins = results[1] + resultsInv[0]
+#         print("Overall win rate of %i vs %i is %f" % (i, 0, iWins / float(iWins + oWins)))
+
+
+##    play vs human
 #     trainer.loadForIteration(14)
 #     trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
 

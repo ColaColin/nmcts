@@ -61,37 +61,57 @@ class NeuralMctsTrainer():
         eps = 0.00000001
         print("Learner wins %i, best player wins %i, %i draws: Winrate of %f" % 
               (myWins, otherWins, sumResults[-1], (myWins + eps) / (myWins + otherWins + eps)))
+        
         improved = myWins > (myWins + otherWins) * 0.55
         if improved:
             print("Progress was made")
+            
         return improved
     
     def updateFrameHistory(self, updateTargets):
-        if updateTargets:
-            bsize = self.batchSize * 4
-            batches = int((len(self.frameHistory) / bsize) + 0.5)
-            asyncs = []
-            for bi in range(batches):
-                asyncs.append(self.pool.apply_async(self.bestPlayer.getBatchMctsResults,
-                                      args=(self.frameHistory[bi * bsize : (bi+1) * bsize], bi * bsize)))
-            for asy in asyncs:
-                for f in asy.get():
-                    self.frameHistory[f[0]][1] = f[1]
-                    self.frameHistory[f[0]][2] = f[2]
-                    
-        self.frameHistory.sort(key=lambda f: f[2])
-        print("Best win chance in the frames is "+str(self.frameHistory[-1][2]))
-        hwin = 0
-        rmCount = 0
-        while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
-            assert hwin <= self.frameHistory[0][2]
-            hwin = self.frameHistory[0][2]
-            rmCount += 1
-            del self.frameHistory[0]
-            
-        print("Highest win chance removed was %i, removed %i frames" % (hwin, rmCount))
+        doTheFancyStuff = False
+        if doTheFancyStuff:
+            if updateTargets:
+                bsize = self.batchSize * 4
+                batches = int((len(self.frameHistory) / bsize) + 0.5)
+                asyncs = []
+                for bi in range(batches):
+                    asyncs.append(self.pool.apply_async(self.bestPlayer.getBatchMctsResults,
+                                          args=(self.frameHistory[bi * bsize : (bi+1) * bsize], bi * bsize)))
+                for asy in asyncs:
+                    for f in asy.get():
+                        self.frameHistory[f[0]][1] = f[1]
+                        self.frameHistory[f[0]][2] = f[2]
     
-    def doLearningIteration(self, games):
+            self.frameHistory.sort(key=lambda f: f[2])
+            mwc = 0
+            for f in self.frameHistory:
+                mwc += f[2]
+            mwc = float(mwc) / len(self.frameHistory)
+            print("Mean win chance in the frames is "+str(mwc))
+            hwin = 0
+            rmCount = 0
+            
+            i = 0
+            while i < len(self.frameHistory) and len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
+                assert hwin <= self.frameHistory[i][2]
+                if 0 == self.frameHistory[i][3][self.frameHistory[i][0].getPlayerOnTurnIndex()] and self.frameHistory[i][2] < 0.5:
+                    hwin = self.frameHistory[i][2]
+                    rmCount += 1
+                    del self.frameHistory[i]
+                    i -= 1
+                    
+                i += 1
+            
+            # TODO why is hwin always zero? Why are there so many frames with a zero win chance?!
+            # probably because it was formatted as integer...
+            print("Highest win chance removed was %f, removed %i frames by correct low win chance assignment" % (hwin, rmCount))
+        # end of fancy stuff that probably is a bad idea...
+        
+        while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
+            del self.frameHistory[0]
+    
+    def doLearningIteration(self, games, iteration):
         t = time.time()
         t0 = t
         
@@ -109,10 +129,11 @@ class NeuralMctsTrainer():
         
         cframes = 0
         learnFrames = []
+        newFrames = []
         for asy in asyncs:
             for f in asy.get():
                 cframes += 1
-                self.frameHistory.append(f)
+                newFrames.append(f)
                 learnFrames.append(f)
         
         print("Collected %i games with %i frames in %f" % (games, cframes, (time.time() - t)))
@@ -124,6 +145,9 @@ class NeuralMctsTrainer():
                 learnFrames.append(historicFrame)
             else:
                 break
+            
+        for f in newFrames:
+            self.frameHistory.append(f)
         
         t = time.time()
         runs = self.epochRuns
@@ -133,7 +157,8 @@ class NeuralMctsTrainer():
             
             random.shuffle(learnFrames)
             
-            self.learner.learner.learnFromFrames(learnFrames)
+            self.learner.learner.learnFromFrames(learnFrames, iteration)
+            # TODO this plays a lot of games. Maybe those games could also be used to learn from? At least the moves of the current best player?
             if self.learnerIsNewChampion():
                 self.bestPlayer = self.learner.clone()
                 improved = True
@@ -156,10 +181,10 @@ class NeuralMctsTrainer():
     def loadForIteration(self, iteration):
         files = os.listdir(self.workingdir)
         foundBest = False
-        
         for i in reversed(range(iteration + 1)):
-            p = os.path.join(self.workingdir, "bestPlayer.iter" + str(i))
-            if p in files:
+            bpi = "bestPlayer.iter" + str(i)
+            if bpi in files:
+                p = os.path.join(self.workingdir, bpi)
                 foundBest = True
                 break
             
@@ -188,6 +213,6 @@ class NeuralMctsTrainer():
             
         for i in range(startAtIteration, numIterations):
             print("Begin iteration %i" % i)
-            impr = self.doLearningIteration(numGames)
+            impr = self.doLearningIteration(numGames, i)
             self.saveForIteration(i, impr)
             
