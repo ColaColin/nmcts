@@ -16,6 +16,7 @@ class AbstractState(metaclass=abc.ABCMeta):
         return index of the winning player or -1 if a draw
         """
     
+    @abc.abstractmethod
     def isMoveLegal(self, move):
         """
         return True if the given move is legal
@@ -32,10 +33,17 @@ class AbstractState(metaclass=abc.ABCMeta):
         """
         return the current turn, the first turn is turn 0
         """
-        
+    
+    @abc.abstractmethod
     def isEarlyGame(self):
         """
         return if moves should be deterministic(False) or probabilistic (True)
+        """
+    
+    @abc.abstractmethod
+    def canTeachSomething(self):
+        """
+        returns True iff the learner may learn something from this state
         """
     
     @abc.abstractmethod
@@ -47,7 +55,7 @@ class AbstractState(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def getMoveCount(self):
         """
-        returns the number of legal moves a player can make
+        returns the number of moves a player can make, including currently illegal moves (TODO: why include that?)
         """
     
     @abc.abstractmethod

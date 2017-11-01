@@ -83,6 +83,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
             print("Loaded state from " + file)
         
         self.net.cuda()
+        self.net.train(False)
     
     def saveState(self, file):
         torch.save(self.net.state_dict(), file)
@@ -158,6 +159,9 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         
         print("learning rate for iteration %i is %f" % (iteration, lr))
         
+        # the model is in non-training mode by default, as set by initState
+        self.net.train(True)
+        
         for e in range(self.epochs):
             mls = []
             wls = []
@@ -186,7 +190,9 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 wls.append(wLoss.data[0])
                 
             print("Completed Epoch %i with loss %f + %f" % (e, np.mean(mls), np.mean(wls)))
-            
+        
+        self.net.train(False)
+        
         del nIn
         del mT
         del wT

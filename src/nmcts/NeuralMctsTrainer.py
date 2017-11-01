@@ -29,35 +29,51 @@ class NeuralMctsTrainer():
         self.frameHistory = []
         self.championGames = championGames
     
-    # TODO this still assumes two players
+    # given an N player game:
+    # assert N % 2 == 0 #because I don't want to think about the more general case...
+    # setup N/2 players playing as the learner, N/2 as bestPlayer
+    # sum up all wins of the learner instances and all wins of the bestPlayer instances
     def learnerIsNewChampion(self):
         gamesPerProc = int(self.championGames / self.threads)
         missing = self.championGames % self.threads
         
         assert missing == 0, str(missing) + " != " + 0
         
+        playersN = self.learner.stateTemplate.getPlayerCount()
+        assert playersN % 2 == 0, "an uneven player count would create more issues and need a bit of code improvement here..."
+        
+        bestPlayers = int(playersN / 2)
+        learners = int(playersN / 2)
+        
         asyncs = []
         asyncsInverted = []
         for _ in range(self.threads):
             g = int(gamesPerProc / 2)
-            asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, g, [self.bestPlayer])))
-            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, g, [self.learner])))
+            asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers)))
+            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners)))
         
         sumResults = [0,0,0]
         
         for asy in asyncs:
             r, _ = asy.get()
-            for i in range(len(r)):
-                sumResults[i] += r[i]
+            sumResults[2] = r[2]
+            for i in range(len(r)-1):
+                if i < learners:
+                    sumResults[0] += r[i]
+                else:
+                    sumResults[1] += r[i]
         
         for asy in asyncsInverted:
             r, _ = asy.get()
-            sumResults[0] += r[1]
-            sumResults[1] += r[0]
-            sumResults[2] += r[2]
+            sumResults[2] = r[2]
+            for i in range(len(r)-1):
+                if i < bestPlayers:
+                    sumResults[1] += r[i]
+                else:
+                    sumResults[0] += r[i]
         
         myWins = sumResults[0]
-        otherWins = sum(sumResults[1:-1])
+        otherWins = sumResults[1]
         eps = 0.00000001
         print("Learner wins %i, best player wins %i, %i draws: Winrate of %f" % 
               (myWins, otherWins, sumResults[-1], (myWins + eps) / (myWins + otherWins + eps)))
@@ -128,15 +144,21 @@ class NeuralMctsTrainer():
             asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize)))
         
         cframes = 0
+        ignoreFrames = 0
         learnFrames = []
         newFrames = []
         for asy in asyncs:
             for f in asy.get():
-                cframes += 1
-                newFrames.append(f)
-                learnFrames.append(f)
+                if True or f[3][0] == 0 or f[3][0] == 1: # "no draws" #TODO make this work together with some abstract method!!!
+                    cframes += 1
+                    newFrames.append(f)
+                    learnFrames.append(f)
+                else:
+                    ignoreFrames += 1
         
         print("Collected %i games with %i frames in %f" % (games, cframes, (time.time() - t)))
+        if ignoreFrames > 0:
+            print("Ignored %i frames" % ignoreFrames)
         
         random.shuffle(self.frameHistory)
         
@@ -206,7 +228,7 @@ class NeuralMctsTrainer():
         with open(os.path.join(self.workingdir, "frameHistory"+ str(iteration) +".pickle"), "wb") as f:
             pickle.dump(self.frameHistory, f)
 
-    def iterateLearning(self, numGames, numIterations, startAtIteration = 0):
+    def iterateLearning(self, numIterations, numGames, startAtIteration = 0):
         loadIteration = startAtIteration - 1
         if loadIteration > -1:
             self.loadForIteration(loadIteration)

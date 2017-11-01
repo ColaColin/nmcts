@@ -19,6 +19,8 @@ import numpy as np
 
 from nmcts.MctsTree import TreeNode
 
+import time
+
 class NeuralMctsPlayer():
     def __init__(self, stateTemplate, mctsExpansions, learner):
         self.stateTemplate = stateTemplate.clone()
@@ -152,7 +154,9 @@ class NeuralMctsPlayer():
             bframes.append([])
         
         while gamesLeft > 0:
+            t = time.time()
             self.batchMcts(batch)
+#             print("Batch complete in %f" % (time.time() - t))
             
             for idx in range(batchSize):
                 b = batch[idx]

@@ -5,7 +5,7 @@ Created on Oct 28, 2017
 '''
 
 
-from nmcts.AbstractState import AbstractState  # @UnresolvedImport
+from nmcts.AbstractState import AbstractState
 
 class MNK():
     def __init__(self, m, n, k):
@@ -90,6 +90,9 @@ class MNKState(AbstractState):
                     self.moveKeys.append((x, y))
         else:
             self.moveKeys = mkeys
+        
+    def canTeachSomething(self):
+        return True
         
     def getWinner(self):
         return self.mnk.winningPlayer
