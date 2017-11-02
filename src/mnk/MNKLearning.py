@@ -142,31 +142,31 @@ if __name__ == '__main__':
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f),
                                 championGames=cgames, batchSize=bsize, threads=threads)
 
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=32)
+#     trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=32)
 
 
-## compare different iterations
+# compare different iterations
 #     learner0 = MNKNetworkLearner(framesPerIter, bsize, epochs, m, n, h, lrs, features=f)
 #     player0 = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner0)
 #     trainer0 = NeuralMctsTrainer(player0, epochRuns, mkpath(m, n, k, h, f),
-#                                  championGames=cgames, batchSize = bsize, threads=threads)
-#     trainer0.loadForIteration(0)
-#     upTo = 21
-#     for i in range(1, upTo+1):
-#         trainer.loadForIteration(i)
-#         print("Playing with " + str(i))
-#         results, _ = trainer.bestPlayer.playAgainst(50, 50, [trainer0.bestPlayer])
-#         resultsInv, _ = trainer0.bestPlayer.playAgainst(50, 50, [trainer.bestPlayer])
-#         print("Results %i vs %i are " % (i, 0), results)
-#         print("Results %i vs %i are " % (0, i), resultsInv)
-#         iWins = results[0] + resultsInv[1]
-#         oWins = results[1] + resultsInv[0]
-#         print("Overall win rate of %i vs %i is %f" % (i, 0, iWins / float(iWins + oWins)))
+#                                   championGames=cgames, batchSize = bsize, threads=threads)
+#     for base in [5, 10, 15]:
+#         trainer0.loadForIteration(base)
+#         for i in [19,21,27,30,34]:
+#             trainer.loadForIteration(i)
+#             print("Playing with " + str(i))
+#             results, _ = trainer.bestPlayer.playAgainst(40, 40, [trainer0.bestPlayer])
+#             resultsInv, _ = trainer0.bestPlayer.playAgainst(40, 40, [trainer.bestPlayer])
+#             print("Results %i vs %i are " % (i, base), results)
+#             print("Results %i vs %i are " % (base, i), resultsInv)
+#             iWins = results[0] + resultsInv[1]
+#             oWins = results[1] + resultsInv[0]
+#             print("Overall win rate of %i vs %i is %f" % (i, base, iWins / float(iWins + oWins)))
 
 
 ##    play vs human
-#     trainer.loadForIteration(14)
-#     trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 0, [], stateFormat, mkParseCommand(m, n, k))
+    trainer.loadForIteration(34)
+    trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 1, [], stateFormat, mkParseCommand(m, n, k))
 
 
 

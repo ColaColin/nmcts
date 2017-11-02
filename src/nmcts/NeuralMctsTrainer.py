@@ -9,12 +9,13 @@ Created on Oct 27, 2017
 '''
 
 import multiprocessing as mp
+#import torch.multiprocessing as mp
 import time
 import random
 import os
 import pickle
 
-from nmcts.MctsTree import TreeNode
+from nmcts.MctsTree import TreeNode  # @UnresolvedImport
 
 class NeuralMctsTrainer():
     
@@ -35,6 +36,9 @@ class NeuralMctsTrainer():
     # sum up all wins of the learner instances and all wins of the bestPlayer instances
     def learnerIsNewChampion(self):
         gamesPerProc = int(self.championGames / self.threads)
+        
+        assert gamesPerProc % 2 == 0, "championgames / threads / 2 needs to be even!"
+        
         missing = self.championGames % self.threads
         
         assert missing == 0, str(missing) + " != " + 0
@@ -56,7 +60,7 @@ class NeuralMctsTrainer():
         
         for asy in asyncs:
             r, _ = asy.get()
-            sumResults[2] = r[2]
+            sumResults[2] += r[-1]
             for i in range(len(r)-1):
                 if i < learners:
                     sumResults[0] += r[i]
@@ -65,12 +69,14 @@ class NeuralMctsTrainer():
         
         for asy in asyncsInverted:
             r, _ = asy.get()
-            sumResults[2] = r[2]
+            sumResults[2] += r[-1]
             for i in range(len(r)-1):
                 if i < bestPlayers:
                     sumResults[1] += r[i]
                 else:
                     sumResults[0] += r[i]
+        
+        assert sum(sumResults) == self.championGames
         
         myWins = sumResults[0]
         otherWins = sumResults[1]
@@ -127,7 +133,7 @@ class NeuralMctsTrainer():
         while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
             del self.frameHistory[0]
     
-    def doLearningIteration(self, games, iteration):
+    def doLearningIteration(self, games, iteration, keepFramesPerc=1.0):
         t = time.time()
         t0 = t
         
@@ -149,7 +155,10 @@ class NeuralMctsTrainer():
         newFrames = []
         for asy in asyncs:
             for f in asy.get():
-                if True or f[3][0] == 0 or f[3][0] == 1: # "no draws" #TODO make this work together with some abstract method!!!
+                keep = len(learnFrames) < self.batchSize or random.random() < keepFramesPerc
+                if keep and (f[3][0] == 0 or f[3][0] == 1): 
+                    # "no draws" #TODO make this work together with some abstract method!!!
+                    # TODO, also if too many frames are filtered another round of games has to be played...
                     cframes += 1
                     newFrames.append(f)
                     learnFrames.append(f)
@@ -157,6 +166,7 @@ class NeuralMctsTrainer():
                     ignoreFrames += 1
         
         print("Collected %i games with %i frames in %f" % (games, cframes, (time.time() - t)))
+        
         if ignoreFrames > 0:
             print("Ignored %i frames" % ignoreFrames)
         
@@ -228,13 +238,13 @@ class NeuralMctsTrainer():
         with open(os.path.join(self.workingdir, "frameHistory"+ str(iteration) +".pickle"), "wb") as f:
             pickle.dump(self.frameHistory, f)
 
-    def iterateLearning(self, numIterations, numGames, startAtIteration = 0):
+    def iterateLearning(self, numIterations, numGames, startAtIteration = 0,keepFramesPerc=1.0):
         loadIteration = startAtIteration - 1
         if loadIteration > -1:
             self.loadForIteration(loadIteration)
             
         for i in range(startAtIteration, numIterations):
             print("Begin iteration %i" % i)
-            impr = self.doLearningIteration(numGames, i)
+            impr = self.doLearningIteration(numGames, i, keepFramesPerc=keepFramesPerc)
             self.saveForIteration(i, impr)
             

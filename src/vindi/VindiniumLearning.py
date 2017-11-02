@@ -4,11 +4,11 @@ Created on Nov 1, 2017
 @author: cclausen
 '''
 
-from nmcts.AbstractTorchLearner import AbstractTorchLearner 
-from nmcts.NeuralMctsTrainer import NeuralMctsTrainer
-from nmcts.NeuralMctsPlayer import NeuralMctsPlayer
+from nmcts.AbstractTorchLearner import AbstractTorchLearner  # @UnresolvedImport
+from nmcts.NeuralMctsTrainer import NeuralMctsTrainer  # @UnresolvedImport
+from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
 
-from vindi.VindiniumGame import VindiniumState
+from vindi.VindiniumGame import VindiniumState  # @UnresolvedImport
 
 import torch.nn as nn
 import torch.optim as optim
@@ -19,24 +19,23 @@ import multiprocessing as mp
 class CNN(nn.Module):
     def __init__(self,f=1):
         super(CNN, self).__init__()
-        # TODO this breaks with an internal CUDNN error
-        # something is bad about this
-        self.conv1 = nn.Conv2d(7, f*64, 3) # 28 -> 26
-        self.bn1 = nn.BatchNorm2d(f*64)
-        self.conv2 = nn.Conv2d(f*64, f*64, 3) # 26 -> 24
-        self.bn2 = nn.BatchNorm2d(f*64)
-        self.conv3 = nn.Conv2d(f*64, f*32, 5) # 24 -> 20
-        self.bn3 = nn.BatchNorm2d(f*32)
-        self.conv4 = nn.Conv2d(f*32, f*32, 5) # 20 -> 16
-        self.bn4 = nn.BatchNorm2d(f*32)
-        self.conv5 = nn.Conv2d(f*32, f*16, 5) # 16 -> 12
-        self.bn5 = nn.BatchNorm2d(f*16)
-        self.conv6 = nn.Conv2d(f*16, f*16, 5) # 12 -> 8
-        self.bn6 = nn.BatchNorm2d(f*16)
-        self.conv7 = nn.Conv2d(f*16, f*8, 5) # 8 -> 4
-        self.bn7 = nn.BatchNorm2d(f*8)
-        self.moveHead = nn.Linear(f*8 * 4 * 4, 5)
-        self.winHead = nn.Linear(f*8 * 4 * 4, 4)
+        self.conv1 = nn.Conv2d(7, f*16, 3) # 28 -> 26
+        self.bn1 = nn.BatchNorm2d(f*16)
+        self.conv2 = nn.Conv2d(f*16, f*16, 3) # 26 -> 24
+        self.bn2 = nn.BatchNorm2d(f*16)
+        self.conv3 = nn.Conv2d(f*16, f*8, 3) # 24 -> 22
+        self.bn3 = nn.BatchNorm2d(f*8)
+        self.conv4 = nn.Conv2d(f*8, f*8, 3) # 22 -> 20
+        self.bn4 = nn.BatchNorm2d(f*8)
+        self.conv5 = nn.Conv2d(f*8, f*4, 5) # 20 -> 16
+        self.bn5 = nn.BatchNorm2d(f*4)
+        self.conv6 = nn.Conv2d(f*4, f*4, 5) # 16 -> 12
+        self.bn6 = nn.BatchNorm2d(f*4)
+        self.conv7 = nn.Conv2d(f*4, f*2, 5) # 12 -> 8
+        self.bn7 = nn.BatchNorm2d(f*2)
+#         self.h = nn.Linear(f * 2 * 8 * 8, 200)
+        self.moveHead = nn.Linear(f * 2 * 8 * 8, 5)
+        self.winHead = nn.Linear(f * 2 * 8 * 8, 4)
         self.hact = nn.ReLU()
         self.softmax = nn.Softmax()
     
@@ -49,18 +48,20 @@ class CNN(nn.Module):
         x = self.hact(self.bn6(self.conv6(x)))
         x = self.hact(self.bn7(self.conv7(x)))
         x = x.view(x.size(0), -1)
+#         x = self.hact(self.h(x))
         moveP = self.softmax(self.moveHead(x))
         winP = self.softmax(self.winHead(x))
-        return moveP, winP 
+        return moveP, winP
     
 class VindiniumLearner(AbstractTorchLearner):
-    def __init__(self,framesPerIteration, batchSize, epochs, lr_schedule):
+    def __init__(self,framesPerIteration, batchSize, epochs, lr_schedule, f):
         super(VindiniumLearner, self).__init__(framesPerIteration, batchSize, epochs, lr_schedule)
+        self.f = f
         self.initState(None)
         
     def clone(self):
         c = VindiniumLearner(self.maxFramesLearntPerIteration, self.batchSize,
-                             self.epochs, self.lr_schedule)
+                             self.epochs, self.lr_schedule, self.f)
         if self.net != None:
             c.initState(None)
             c.net.load_state_dict(self.net.state_dict())
@@ -76,7 +77,15 @@ class VindiniumLearner(AbstractTorchLearner):
         return 5
     
     def createNetwork(self):
-        return CNN(f=1)
+        n = CNN(f=self.f)
+        c = 0
+        for parameter in n.parameters():
+            cf = 1
+            for p in parameter.size():
+                cf *= p
+            c += cf
+        print("Created a network with %i parameters" % c)
+        return n
     
     def createOptimizer(self, net):
         # lr is set before first use elsewhere
@@ -103,29 +112,31 @@ if __name__ == '__main__':
     mp.set_start_method("spawn")
     
     name = "test"
-    maxIter = 2000
-    gamesPerIter = 20
-    turnsPerGame = 20
-    framesPerIter = 100000
-    f = 1
+    maxIter = 9999
+
+    gamesPerIter = 500
+    turnsPerGame = 140
+    framesPerIter = 50000
+    keepFramesPerc = 0.5
+    f = 4
     
     lrs = [0.1] * 3 + [0.05] * 10 + [0.005] * 17 + [0.001] * maxIter
-    epochs = 10
+    epochs = 7
     epochRuns = 2
     
-    bsize = 25
-    mctsExpansions = 500
+    bsize = 50
+    mctsExpansions = 300
     
     print("Using %i nodes per search tree" % mctsExpansions)
-    cgames = 20
+    cgames = 80
     threads = 4
     
-    learner = VindiniumLearner(framesPerIter, bsize, epochs, lrs)
+    learner = VindiniumLearner(framesPerIter, bsize, epochs, lrs, f)
     player = NeuralMctsPlayer(VindiniumState(maxTurns=turnsPerGame, isTemplate=True), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(f, name),
                                 championGames=cgames, batchSize=bsize,threads=threads)
     
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=0)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=0, keepFramesPerc=keepFramesPerc)
     
 #     trainer.bestPlayer.playVsHuman(VindiniumState(maxTurns=40), 0, [trainer.bestPlayer,trainer.bestPlayer], stateFormat, parseCommand)
     

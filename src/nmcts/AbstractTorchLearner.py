@@ -13,6 +13,8 @@ import numpy as np
 
 from nmcts.AbstractLearner import AbstractLearner  # @UnresolvedImport
 
+torch.set_printoptions(2, 99999, 999999, 999999)
+
 class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def __init__(self, framesPerIteration, batchSize, epochs, lr_schedule):
         assert framesPerIteration % batchSize == 0
@@ -72,7 +74,8 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         """
     
     def initState(self, file):
-        self.networkInput = torch.zeros((self.maxFramesLearntPerIteration,) + self.getNetInputShape()).pin_memory()
+        # TODO for larger input sizes this isn't such a good idea
+        self.networkInput = torch.zeros((self.maxFramesLearntPerIteration,) + self.getNetInputShape())#.pin_memory()
         self.moveOutput = torch.zeros(self.maxFramesLearntPerIteration, self.getMoveCount()).pin_memory()
         self.winOutput = torch.zeros(self.maxFramesLearntPerIteration, self.getPlayerCount()).pin_memory()
         self.net = self.createNetwork()
@@ -135,9 +138,14 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
             
             for pid in range(frame[0].getPlayerCount()):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
+                
+#             print(frame[0], "=>")
+#             print(self.moveOutput[fidx], self.winOutput[fidx])
+#             print(self.networkInput[fidx])
     
     def learnFromFrames(self, frames, iteration, dbg=False):
         assert(len(frames) <= self.maxFramesLearntPerIteration), str(len(frames)) + "/" + str(self.maxFramesLearntPerIteration)
+        
         self.fillTrainingSet(frames)
         
         batchNum = int(len(frames) / self.batchSize)

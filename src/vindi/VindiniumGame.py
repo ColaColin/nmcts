@@ -5,7 +5,7 @@ with parts from https://github.com/renatopp/vindinium-python
 
 '''
 
-from nmcts.AbstractState import AbstractState
+from nmcts.AbstractState import AbstractState  # @UnresolvedImport
 
 import random
 import json
@@ -4071,16 +4071,16 @@ class VindiniumState(AbstractState):
                     v[0] = 0.75
                     mOwner = self.mines[x,y]
                     if mOwner != None:
-                        v[1] = self.mapPlayerIndexToTurnRel(mOwner-1) / 4.0
+                        v[1] = (1+self.mapPlayerIndexToTurnRel(mOwner-1)) / 4.0
                 elif self.map[x,y] == TILE_TAVERN:
                     v[0] = 1.0
                 
                 for hid in range(len(self.heroes)):
                     h = self.heroes[hid]
                     if h['spawn_x'] == x and h['spawn_y'] == y:
-                        v[2] = self.mapPlayerIndexToTurnRel(hid) / 4.0
+                        v[2] = (1+self.mapPlayerIndexToTurnRel(hid)) / 4.0
                     if h['x'] == x and h['y'] == y:
-                        v[3] = self.mapPlayerIndexToTurnRel(hid) / 4.0
+                        v[3] = (1+self.mapPlayerIndexToTurnRel(hid)) / 4.0
                         v[4] = h['life'] / 100.0
                         if moneySum > 0:
                             v[5] = h['gold'] / moneySum
@@ -4189,14 +4189,14 @@ class VindiniumState(AbstractState):
         for pos in self.mines:
             m = self.mines[pos]
             if m != None:
-                self.tensor[1,pos[1] + self.yOff, pos[0] + self.xOff] = self.mapPlayerIndexToTurnRel(m-1) / 4.0
+                self.tensor[1,pos[1] + self.yOff, pos[0] + self.xOff] = (self.mapPlayerIndexToTurnRel(m-1)+1) / 4.0
         
         for hid, h in enumerate(self.heroes):
             # update spawn position codes
-            self.tensor[2,h['spawn_y'] + self.yOff,h['spawn_x'] + self.xOff] = self.mapPlayerIndexToTurnRel(hid) / 4.0
+            self.tensor[2,h['spawn_y'] + self.yOff,h['spawn_x'] + self.xOff] = (1+self.mapPlayerIndexToTurnRel(hid)) / 4.0
             px = h['x'] + self.xOff
             py = h['y'] + self.yOff
-            self.tensor[3,py,px] = self.mapPlayerIndexToTurnRel(hid) / 4.0
+            self.tensor[3,py,px] = (1+self.mapPlayerIndexToTurnRel(hid)) / 4.0
             self.tensor[4,py,px] = h['life'] / 100.0
             if moneySum > 0:
                 self.tensor[5,py,px] = h['gold'] / moneySum
@@ -4269,7 +4269,6 @@ class VindiniumState(AbstractState):
     
             # Attack if 1-tile distance
             if abs(hero['x']-h['x'])+abs(hero['y']-h['y']) == 1:
-    
                 if h['life'] > 20:
                     h['life'] -= 20
                 else:

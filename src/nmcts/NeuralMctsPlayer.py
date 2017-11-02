@@ -17,7 +17,7 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-from nmcts.MctsTree import TreeNode
+from nmcts.MctsTree import TreeNode  # @UnresolvedImport
 
 import time
 
@@ -138,7 +138,6 @@ class NeuralMctsPlayer():
         plays n games against itself using more extensive exploration (i.e. pick move probabilistic if state reports early game)
         used to generate games for playing
         """
-        
         gamesLeft = n
         gamesRunning = 0
         frames = []
@@ -154,7 +153,8 @@ class NeuralMctsPlayer():
             bframes.append([])
         
         while gamesLeft > 0:
-            t = time.time()
+#             print("Begin batch")
+#             t = time.time()
             self.batchMcts(batch)
 #             print("Batch complete in %f" % (time.time() - t))
             
