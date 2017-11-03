@@ -4014,11 +4014,21 @@ class Game(object):
         s += ' ' + '-'*(self.map.size)
         return s
 
+class VindiniumStateFrame(object):
+    def __init__(self, turn, playerCount, tensor):
+        self.turn = turn
+        self.playerCount = playerCount
+        self.tensor = tensor.clone()
+        
+    def mapPlayerIndexToTurnRel(self, playerIndex):
+        t = self.turn
+        pc = self.playerCount
+        return (playerIndex - (t % pc)) % pc
+
 class VindiniumState(AbstractState):
     
-    def __init__(self, game=None, maxTurns=160, isTemplate=False):
-        self.isTemplate = isTemplate
-        if not self.isTemplate and isinstance(game, VindiniumState):
+    def __init__(self, game=None, maxTurns=160):
+        if isinstance(game, VindiniumState):
             self.last_move = game.last_move
             self.turn = game.turn
             self.heroes = [h.copy() for h in game.heroes]
@@ -4028,8 +4038,6 @@ class VindiniumState(AbstractState):
             self.max_turns = game.max_turns
             self.mapSize = game.mapSize
             self.map = game.map
-            # this approach eats memory for breakfast and some more.
-            # can this be done in a better way?
             self.tensor = game.tensor.clone()
         else:
             if game == None:
@@ -4052,6 +4060,12 @@ class VindiniumState(AbstractState):
             self.max_turns = game.max_turns
             self.mapSize = game.mapSize
             self.writeAllStateToTensor()
+
+    def getNewGame(self):
+        return VindiniumState(maxTurns= self.max_turns)
+
+    def getFrameClone(self):
+        return VindiniumStateFrame(self.turn, self.getPlayerCount(), self.tensor)
 
     def writeAllStateToTensor(self):
         self.tensor.fill_(0)
@@ -4131,20 +4145,52 @@ class VindiniumState(AbstractState):
             self.mines[(mine.x, mine.y)] = mine.owner
 
     def clone(self):
-        return VindiniumState(self, self.isTemplate)
+        return VindiniumState(self)
 
     def getPlayerOnTurnIndex(self):
         return self.turn % 4
 
-    def kill(self, id, killer=None):  # @ReservedAssignment
+    def kill(self, id, killer=None, recCount=0):  # @ReservedAssignment
+        if recCount > 8:
+            print("Bailing out of a kill. What is going on here?")
+            print(str(self))
+            return
+        # TODO
+# Bailing out of a kill. What is going on here?
+# ====
+# (2/89): 
+#     1: (4, 8, l077, $12, m1)
+#     2: (10, 10, l058, $0, m0)
+#     3: (11, 5, l049, $3, m0)
+#     4: (11, 10, l009, $0, m0)
+# 
+#  ----------------
+# |################|
+# |################|
+# |######    ######|
+# |#####      #####|
+# |#####      #####|
+# |####  #  # 3####|
+# |####sT MM T ####|
+# |####        ####|
+# |####1       ####|
+# |#### T MM T ####|
+# |####s #  #24####|
+# |#####      #####|
+# |#####      #####|
+# |######    ######|
+# |################|
+# |################|
+#  ----------------
+        
         '''Recursively kills a hero.'''
         hero = self.heroes[id]
         
         for i, h in enumerate(self.heroes):
-            if h == hero: continue
+            if i == id: continue
     
             if h['x']==hero['spawn_x'] and h['y']==hero['spawn_y']:
-                self.kill(i)
+                self.kill(i, recCount = recCount + 1)
     
         hero['x'] = hero['spawn_x']
         hero['y'] = hero['spawn_y']
@@ -4224,13 +4270,15 @@ class VindiniumState(AbstractState):
             if h['x']==x_ and h['y']==y_:
                 hero_ = h
                 break
-            
+        
+        gotKilled = False
+        
         # prevent heroes from walking off the map
         if x_ > -1 and x_ < self.mapSize and y_ > -1 and y_ < self.mapSize:
             # Compute side effects of movement
             tile = self.map[x_, y_]
             
-            if tile == 0 and not hero_:
+            if (tile == TILE_EMPTY or tile == TILE_SPAWN) and not hero_:
                 # EMPTY -> Move hero
                 hero['x'] = x_
                 hero['y'] = y_
@@ -4261,18 +4309,19 @@ class VindiniumState(AbstractState):
                     # dies trying
                     else:
                         self.kill(id)
+                        gotKilled = True
     
         # Fight
-        # TODO teleportation sickness...
-        for i, h in enumerate(self.heroes):
-            if h == hero: continue
-    
-            # Attack if 1-tile distance
-            if abs(hero['x']-h['x'])+abs(hero['y']-h['y']) == 1:
-                if h['life'] > 20:
-                    h['life'] -= 20
-                else:
-                    self.kill(i, id)
+        if not gotKilled:
+            for i, h in enumerate(self.heroes):
+                if i == id: continue
+        
+                # Attack if 1-tile distance
+                if abs(hero['x']-h['x'])+abs(hero['y']-h['y']) == 1:
+                    if h['life'] > 20:
+                        h['life'] -= 20
+                    else:
+                        self.kill(i, killer=id)
     
         # Mining
         hero['gold'] += hero['mine_count']
@@ -4316,10 +4365,28 @@ class VindiniumState(AbstractState):
         """
         return True if the given move is legal
         """
-        d = self.getMoveVector(commands[move])
-        hero, _ = self.getCurrentHero()
+        
+        cmd = commands[move]
+        
+        #ignore STAY for now. Keeps the game simpler and really only matters for very high level play, if ever.
+        if cmd == STAY:
+            return False
+        
+        d = self.getMoveVector(cmd)
+        
+        hero, hid = self.getCurrentHero()
         x_, y_ = hero['x']+d[0], hero['y']+d[1]
-        return x_ > -1 and x_ < self.mapSize and y_ > -1 and y_ < self.mapSize and self.map[x_, y_] != TILE_WALL 
+        
+        withinBounds = x_ > -1 and x_ < self.mapSize and y_ > -1 and y_ < self.mapSize 
+        noWall = withinBounds and self.map[x_, y_] != TILE_WALL 
+        noOwnMine = withinBounds and (self.map[x_, y_] != TILE_MINE or self.mines[x_, y_] != hid+1)
+        
+        isNoTavern = withinBounds and self.map[x_, y_] != TILE_TAVERN
+        
+        noHealthyTavern = isNoTavern or hero['life'] < 90
+        noBrokeTavern = isNoTavern or hero['gold'] > 0
+
+        return noWall and noOwnMine and noHealthyTavern and noBrokeTavern
     
     def getTurn(self):
         return self.turn

@@ -10,6 +10,7 @@ from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
 
 from vindi.VindiniumGame import VindiniumState  # @UnresolvedImport
 
+import torch
 import torch.nn as nn
 import torch.optim as optim
 
@@ -74,7 +75,7 @@ class VindiniumLearner(AbstractTorchLearner):
         return 4
         
     def getMoveCount(self):
-        return 5
+        return 5 
     
     def createNetwork(self):
         n = CNN(f=self.f)
@@ -107,36 +108,55 @@ def parseCommand(cmd):
     EAST  = 'East'
     STAY  = 'Stay'
     return [NORTH, SOUTH, WEST, EAST, STAY].index(cmd)
-    
+
 if __name__ == '__main__':
     mp.set_start_method("spawn")
+    
+    torch.set_printoptions(2, 99999, 999999, 999999)
     
     name = "test"
     maxIter = 9999
 
-    gamesPerIter = 500
-    turnsPerGame = 140
+    gamesPerIter = 480
+    turnsPerGame = 100
     framesPerIter = 50000
-    keepFramesPerc = 0.5
+    keepFramesPerc = 0.4
     f = 4
     
-    lrs = [0.1] * 3 + [0.05] * 10 + [0.005] * 17 + [0.001] * maxIter
-    epochs = 7
+    lrs = [0.05] * 10 + [0.005] * 17 + [0.001] * maxIter
+    epochs = 10
     epochRuns = 2
     
     bsize = 50
     mctsExpansions = 300
     
     print("Using %i nodes per search tree" % mctsExpansions)
-    cgames = 80
+    cgames = 96
     threads = 4
     
     learner = VindiniumLearner(framesPerIter, bsize, epochs, lrs, f)
-    player = NeuralMctsPlayer(VindiniumState(maxTurns=turnsPerGame, isTemplate=True), mctsExpansions, learner)
+    player = NeuralMctsPlayer(VindiniumState(maxTurns=turnsPerGame), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(f, name),
                                 championGames=cgames, batchSize=bsize,threads=threads)
     
     trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=0, keepFramesPerc=keepFramesPerc)
     
-#     trainer.bestPlayer.playVsHuman(VindiniumState(maxTurns=40), 0, [trainer.bestPlayer,trainer.bestPlayer], stateFormat, parseCommand)
+#     trainer.loadForIteration(2)
+#     trainer.bestPlayer.playVsHuman(VindiniumState(maxTurns=140), -1, [trainer.bestPlayer, trainer.bestPlayer,trainer.bestPlayer], stateFormat, parseCommand)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     

@@ -65,6 +65,14 @@ class AbstractState(metaclass=abc.ABCMeta):
         """
     
     @abc.abstractmethod
+    def getFrameClone(self):
+        """
+        returns a copy that will be used as data for frames. Can probably save some memory. The returned object
+        strictly only needs to implement mapPlayerIndexToTurnRel (TODO that should not be necessary...)
+        and be useful to the fillNetworkInput implementation
+        """
+    
+    @abc.abstractmethod
     def simulate(self, move):
         """
         Do one step of the simulation given a move for the current player.
@@ -83,7 +91,7 @@ class AbstractState(metaclass=abc.ABCMeta):
         """
         return true iff this state is terminal, i.e. additional moves are not allowed
         """
-        
+    
     def mapPlayerIndexToTurnRel(self, playerIndex):
         """
         return playerIndex -> playerIndex relative to current turn 

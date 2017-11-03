@@ -19,6 +19,8 @@ import numpy as np
 
 from nmcts.MctsTree import TreeNode  # @UnresolvedImport
 
+import random
+
 import time
 
 class NeuralMctsPlayer():
@@ -114,11 +116,13 @@ class NeuralMctsPlayer():
         stateFormatter is expected to be a function that returns a string given a state
         """
         allPlayers = [self] + otherPlayers
-        allPlayers.insert(humanIndex, None)
+        if humanIndex != -1:
+            allPlayers.insert(humanIndex, None)
         
         while not state.isTerminal():
             print(stateFormatter(state))
-            player = allPlayers[state.getTurn() % len(allPlayers)]
+            pindex = state.getTurn() % len(allPlayers)
+            player = allPlayers[pindex]
             if player != None: #AI player
                 m = player.findBestMoves([state])[0]
             else:
@@ -127,13 +131,14 @@ class NeuralMctsPlayer():
                     m = commandParser(input("Your turn:"))
                     if m == -1:
                         print("That cannot be parsed, try again.")
+            print(pindex+1, m)
             state.simulate(m)
             
         print("Game over")
         print(stateFormatter(state))
         
         
-    def selfPlayNGames(self, n, batchSize):
+    def selfPlayNGames(self, n, batchSize, keepFramesPerc = 1.0):
         """
         plays n games against itself using more extensive exploration (i.e. pick move probabilistic if state reports early game)
         used to generate games for playing
@@ -146,7 +151,8 @@ class NeuralMctsPlayer():
         bframes = []
         for _ in range(batchSize):
             if gamesLeft > gamesRunning:
-                batch.append(TreeNode(self.stateTemplate.clone()))
+                initialGameState = self.stateTemplate.getNewGame()
+                batch.append(TreeNode(initialGameState))
                 gamesRunning += 1
             else:
                 batch.append(None)
@@ -164,18 +170,19 @@ class NeuralMctsPlayer():
                     continue
                 md = b.getMoveDistribution()
                 if b.state.getTurn() > 0:
-                    bframes[idx].append([b.state.clone(), md, b.getBestValue()])
+                    bframes[idx].append([b.state.getFrameClone(), md, b.getBestValue()])
                 mv = self._pickMove(md, b.state, b.state.isEarlyGame())
                 b = b.getChildForMove(mv)
                 
                 if b.state.isTerminal():
                     for f in bframes[idx]:
-                        frames.append(f + [b.getTerminalResult()])
+                        if keepFramesPerc == 1.0 or random.random() < keepFramesPerc:
+                            frames.append(f + [b.getTerminalResult()])
                     bframes[idx] = []
                     gamesLeft -= 1
                     gamesRunning -= 1
                     if gamesRunning < gamesLeft:
-                        batch[idx] = TreeNode(self.stateTemplate.clone())
+                        batch[idx] = TreeNode(self.stateTemplate.getNewGame())
                         gamesRunning += 1
                     else:
                         batch[idx] = None
@@ -188,7 +195,8 @@ class NeuralMctsPlayer():
         return frames
         
         
-    def playAgainst(self, n, batchSize, others, collectFrames=False):
+    def playAgainst(self, n, batchSize, others, printSomeGames=False):
+        collectFrames=False
         """
         play against other neural mcts players, in batches.
         Since multiple players are used this requires more of a lock-step kind of approach, which makes
@@ -221,7 +229,8 @@ class NeuralMctsPlayer():
             batch = []
             
             for _ in range(batchSize):
-                batch.append(TreeNode(self.stateTemplate.clone()))
+                initialGameState = self.stateTemplate.getNewGame()
+                batch.append(TreeNode(initialGameState))
                 gamesActive += 1
             
             turn = 0
@@ -232,6 +241,10 @@ class NeuralMctsPlayer():
                 player.batchMcts(batch)
                 turn += 1
                 
+                if printSomeGames:
+                    if batch[0] != None:
+                        print("B0", batch[0].state)
+                
                 for idx in range(batchSize):
                     b = batch[idx]
                     if b == None:
@@ -241,7 +254,7 @@ class NeuralMctsPlayer():
                     gameIndex = batchSize * bi + idx
                     
                     if collectFrames:
-                        gameFrames[gameIndex].append([b.state.clone(), md, b.getBestValue()])
+                        gameFrames[gameIndex].append([b.state.getFrameClone(), md, b.getBestValue()])
                     
                     mv = self._pickMove(md, b.state, False)
                     b = b.getChildForMove(mv)

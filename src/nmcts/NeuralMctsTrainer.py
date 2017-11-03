@@ -51,10 +51,12 @@ class NeuralMctsTrainer():
         
         asyncs = []
         asyncsInverted = []
-        for _ in range(self.threads):
+        for ti in range(self.threads):
             g = int(gamesPerProc / 2)
-            asyncs.append(self.pool.apply_async(self.learner.playAgainst, args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers)))
-            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners)))
+            asyncs.append(self.pool.apply_async(self.learner.playAgainst, 
+                args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers, False and ti == 0)))
+            asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, 
+                args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners)))
         
         sumResults = [0,0,0]
         
@@ -147,7 +149,7 @@ class NeuralMctsTrainer():
         
         for _ in range(self.threads):
             g = gamesPerProc
-            asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize)))
+            asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize, keepFramesPerc)))
         
         cframes = 0
         ignoreFrames = 0
@@ -155,8 +157,7 @@ class NeuralMctsTrainer():
         newFrames = []
         for asy in asyncs:
             for f in asy.get():
-                keep = len(learnFrames) < self.batchSize or random.random() < keepFramesPerc
-                if keep and (f[3][0] == 0 or f[3][0] == 1): 
+                if (f[3][0] == 0 or f[3][0] == 1): 
                     # "no draws" #TODO make this work together with some abstract method!!!
                     # TODO, also if too many frames are filtered another round of games has to be played...
                     cframes += 1

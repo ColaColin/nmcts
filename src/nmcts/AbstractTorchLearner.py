@@ -13,7 +13,7 @@ import numpy as np
 
 from nmcts.AbstractLearner import AbstractLearner  # @UnresolvedImport
 
-torch.set_printoptions(2, 99999, 999999, 999999)
+import random
 
 class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     def __init__(self, framesPerIteration, batchSize, epochs, lr_schedule):
@@ -136,7 +136,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
             for idx, p in enumerate(frame[1]):
                 self.moveOutput[fidx, idx] = p
             
-            for pid in range(frame[0].getPlayerCount()):
+            for pid in range(self.getPlayerCount()):
                 self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
                 
 #             print(frame[0], "=>")
@@ -145,6 +145,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     def learnFromFrames(self, frames, iteration, dbg=False):
         assert(len(frames) <= self.maxFramesLearntPerIteration), str(len(frames)) + "/" + str(self.maxFramesLearntPerIteration)
+        
         
         self.fillTrainingSet(frames)
         
