@@ -131,13 +131,16 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         self.networkInput.fill_(0)
         
         for fidx, frame in enumerate(frames):
-            self.fillNetworkInput(frame[0], self.networkInput, fidx)
             
-            for idx, p in enumerate(frame[1]):
+            augmented = frame[0].augmentFrame(frame)
+            
+            self.fillNetworkInput(augmented[0], self.networkInput, fidx)
+            
+            for idx, p in enumerate(augmented[1]):
                 self.moveOutput[fidx, idx] = p
             
             for pid in range(self.getPlayerCount()):
-                self.winOutput[fidx, frame[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
+                self.winOutput[fidx, augmented[0].mapPlayerIndexToTurnRel(pid)] = frame[3][pid]
                 
 #             print(frame[0], "=>")
 #             print(self.moveOutput[fidx], self.winOutput[fidx])
@@ -145,23 +148,12 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     def learnFromFrames(self, frames, iteration, dbg=False):
         assert(len(frames) <= self.maxFramesLearntPerIteration), str(len(frames)) + "/" + str(self.maxFramesLearntPerIteration)
-        
-        
-        self.fillTrainingSet(frames)
-        
+
         batchNum = int(len(frames) / self.batchSize)
         
         if dbg:
             print(len(frames), self.batchSize, batchNum)
-
-        assert torch.sum(self.networkInput.ne(self.networkInput)) == 0
-        assert torch.sum(self.moveOutput.ne(self.moveOutput)) == 0
-        assert torch.sum(self.winOutput.ne(self.winOutput)) == 0
-        
-        nIn = Variable(self.networkInput).cuda()
-        mT = Variable(self.moveOutput).cuda()
-        wT = Variable(self.winOutput).cuda()
-        
+                
         lr = self.getLrForIteration(iteration)
         for param_group in self.opt.param_groups:
             param_group['lr'] = lr
@@ -172,6 +164,19 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         self.net.train(True)
         
         for e in range(self.epochs):
+            print("Preparing example data...")
+            self.fillTrainingSet(frames)
+            
+            assert torch.sum(self.networkInput.ne(self.networkInput)) == 0
+            assert torch.sum(self.moveOutput.ne(self.moveOutput)) == 0
+            assert torch.sum(self.winOutput.ne(self.winOutput)) == 0
+            
+            nIn = Variable(self.networkInput).cuda()
+            mT = Variable(self.moveOutput).cuda()
+            wT = Variable(self.winOutput).cuda()
+            
+            print("Data prepared, starting to learn!")
+            
             mls = []
             wls = []
             
@@ -187,8 +192,22 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 
                 mO, wO = self.net(x)
                 
-                mLoss = -torch.sum(torch.log(mO) * yM) / self.batchSize
-                wLoss = -torch.sum(torch.log(wO) * yW) / self.batchSize
+#                 print("...")
+# #                 print(x[0], wO[0], yW[0])
+# #                 print("XXXX")
+# #                 print(x[1], wO[1], yW[1])
+#                 print(x[:,0], wO, yW)
+#                 xz = x.clone()
+#                 xz[:] = -10.42
+#                 print(self.net(xz)[1])
+#                 print("===")
+#                 exit(0)
+                
+                eps = 1e-6
+                mLoss = -torch.sum(torch.log(mO + eps) * yM) / self.batchSize
+                wLoss = -torch.sum(torch.log(wO + eps) * yW) / self.batchSize
+                
+#                 print(wO, yW);
                 
                 loss = mLoss + wLoss
                 loss.backward()

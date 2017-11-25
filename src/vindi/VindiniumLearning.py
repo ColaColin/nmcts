@@ -19,6 +19,7 @@ import multiprocessing as mp
 
 class CNN(nn.Module):
     def __init__(self,f=1):
+        # TODO use a proven network configuration. I suspect this one sucks. Hard.
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(7, f*16, 3) # 28 -> 26
         self.bn1 = nn.BatchNorm2d(f*16)
@@ -49,6 +50,7 @@ class CNN(nn.Module):
         x = self.hact(self.bn6(self.conv6(x)))
         x = self.hact(self.bn7(self.conv7(x)))
         x = x.view(x.size(0), -1)
+        
 #         x = self.hact(self.h(x))
         moveP = self.softmax(self.moveHead(x))
         winP = self.softmax(self.winHead(x))
@@ -112,12 +114,12 @@ def parseCommand(cmd):
 if __name__ == '__main__':
     mp.set_start_method("spawn")
     
-    torch.set_printoptions(2, 99999, 999999, 999999)
+    torch.set_printoptions(5, 999999, 9999999, 99989999)
     
     name = "test"
     maxIter = 9999
 
-    gamesPerIter = 480
+    gamesPerIter = 4#80
     turnsPerGame = 100
     framesPerIter = 50000
     keepFramesPerc = 0.4
@@ -127,8 +129,8 @@ if __name__ == '__main__':
     epochs = 10
     epochRuns = 2
     
-    bsize = 50
-    mctsExpansions = 300
+    bsize = 5#50
+    mctsExpansions =100 #300
     
     print("Using %i nodes per search tree" % mctsExpansions)
     cgames = 96
@@ -139,7 +141,7 @@ if __name__ == '__main__':
     trainer = NeuralMctsTrainer(player, epochRuns, mkpath(f, name),
                                 championGames=cgames, batchSize=bsize,threads=threads)
     
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=0, keepFramesPerc=keepFramesPerc)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=2, keepFramesPerc=keepFramesPerc)
     
 #     trainer.loadForIteration(2)
 #     trainer.bestPlayer.playVsHuman(VindiniumState(maxTurns=140), -1, [trainer.bestPlayer, trainer.bestPlayer,trainer.bestPlayer], stateFormat, parseCommand)

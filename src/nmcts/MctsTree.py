@@ -12,7 +12,7 @@ class TreeEdge():
     def __init__(self, priorP, parentNode):
         self.visitCount = 0
         self.totalValue = 0
-        # TODO have a look at modelling this as a distribution instead of a mean.
+        # TODO have a look at modeling this as a distribution instead of a mean.
         # see arXiv 1707.06887 as detailed inspiration. How to apply that to MCTS?
         self.meanValue = 0.5 #TODO should the default not be 0.5 instead of zero? The values go from 0 to 1 after all. 0 is pretty pessimistic
         self.priorP = priorP
@@ -96,6 +96,7 @@ class TreeNode():
         
         allVisitsSq = allVisits ** 0.5
 
+        # unlike alphago zero this is added on every move #TODO judge if that is really a good idea
         dirNoise = np.random.dirichlet(self.dconst)
         
         foundLegalMove = False

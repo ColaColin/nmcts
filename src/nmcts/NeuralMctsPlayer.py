@@ -121,7 +121,7 @@ class NeuralMctsPlayer():
         
         while not state.isTerminal():
             print(stateFormatter(state))
-            pindex = state.getTurn() % len(allPlayers)
+            pindex = state.getPlayerOnTurnIndex()
             player = allPlayers[pindex]
             if player != None: #AI player
                 m = player.findBestMoves([state])[0]
@@ -195,7 +195,7 @@ class NeuralMctsPlayer():
         return frames
         
         
-    def playAgainst(self, n, batchSize, others, printSomeGames=False):
+    def playAgainst(self, n, batchSize, others):
         collectFrames=False
         """
         play against other neural mcts players, in batches.
@@ -233,17 +233,22 @@ class NeuralMctsPlayer():
                 batch.append(TreeNode(initialGameState))
                 gamesActive += 1
             
-            turn = 0
-            
             while gamesActive > 0:
-                pIndex = turn % len(allPlayers)
+                someGame = None
+                for b in batch:
+                    if b != None:
+                        someGame = b
+                        break
+                # the games are all in the same turn
+                pIndex = someGame.state.getPlayerOnTurnIndex()
+                for b in batch:
+                    if b != None:
+                        assert b.state.getPlayerOnTurnIndex() == pIndex
+                        
                 player = allPlayers[pIndex]
                 player.batchMcts(batch)
-                turn += 1
                 
-                if printSomeGames:
-                    if batch[0] != None:
-                        print("B0", batch[0].state)
+#                 print(pIndex, someGame.state.c6, ["{0:.5f}".format(x) for x in someGame.getMoveDistribution()])
                 
                 for idx in range(batchSize):
                     b = batch[idx]

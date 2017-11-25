@@ -70,6 +70,20 @@ class AbstractState(metaclass=abc.ABCMeta):
         returns a copy that will be used as data for frames. Can probably save some memory. The returned object
         strictly only needs to implement mapPlayerIndexToTurnRel (TODO that should not be necessary...)
         and be useful to the fillNetworkInput implementation
+       
+    """
+    
+    @abc.abstractmethod
+    def getNewGame(self):
+        """
+        expected to return a new state that represents a newly initialized game
+        """
+    
+    @abc.abstractmethod
+    def augmentFrame(self, frame):
+        """
+        given a frame (state, movedistribution, winchances) return a copy of the frame augmented for training.
+        For example apply random rotations or mirror it
         """
     
     @abc.abstractmethod

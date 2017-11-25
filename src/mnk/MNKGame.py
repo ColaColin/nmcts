@@ -5,7 +5,7 @@ Created on Oct 28, 2017
 '''
 
 
-from nmcts.AbstractState import AbstractState
+from nmcts.AbstractState import AbstractState  # @UnresolvedImport
 
 class MNK():
     def __init__(self, m, n, k):
@@ -120,6 +120,9 @@ class MNKState(AbstractState):
         c += c % 2
         return self.mnk.turn < c#True #self.mnk.turn < self.mnk.m * self.mnk.n * 0.75
     
+    def getNewGame(self):
+        return MNKState(MNK(self.mnk.m, self.mnk.n, self.mnk.k), mkeys = self.moveKeys)
+    
     def getPlayerCount(self):
         return 2
     
@@ -139,6 +142,9 @@ class MNKState(AbstractState):
     
     def clone(self):
         return MNKState(self.mnk.clone(), self.moveKeys)
+        
+    def getFrameClone(self):
+        return self.clone()
         
     def simulate(self, move):
         x, y = self.moveKeys[move]

@@ -51,10 +51,10 @@ class NeuralMctsTrainer():
         
         asyncs = []
         asyncsInverted = []
-        for ti in range(self.threads):
+        for _ in range(self.threads):
             g = int(gamesPerProc / 2)
             asyncs.append(self.pool.apply_async(self.learner.playAgainst, 
-                args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers, False and ti == 0)))
+                args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers)))
             asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, 
                 args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners)))
         
@@ -182,6 +182,21 @@ class NeuralMctsTrainer():
         for f in newFrames:
             self.frameHistory.append(f)
         
+        improved = self.learnFrames(learnFrames, iteration)
+
+        tu = time.time()
+
+        print("Updating frame history ...")
+        self.updateFrameHistory(improved)
+        print("Updates done in %f" % (time.time() - tu))
+
+        print("Iteration completed in %f" % (time.time() - t0))
+        
+        return improved
+
+        #TODO should the learner be reset to the bestplayer here? Or keep the not-so-optimal learning progress?
+
+    def learnFrames(self, learnFrames, iteration):
         t = time.time()
         runs = self.epochRuns
         improved = False
@@ -198,18 +213,7 @@ class NeuralMctsTrainer():
                 runs += 1
 
         print("Done learning in %f" % (time.time() - t))
-
-        tu = time.time()
-
-        print("Updating frame history ...")
-        self.updateFrameHistory(improved)
-        print("Updates done in %f" % (time.time() - tu))
-
-        print("Iteration completed in %f" % (time.time() - t0))
-        
         return improved
-
-        #TODO should the learner be reset to the bestplayer here? Or keep the not-so-optimal learning progress?
 
     def loadForIteration(self, iteration):
         files = os.listdir(self.workingdir)
@@ -239,11 +243,23 @@ class NeuralMctsTrainer():
         with open(os.path.join(self.workingdir, "frameHistory"+ str(iteration) +".pickle"), "wb") as f:
             pickle.dump(self.frameHistory, f)
 
-    def iterateLearning(self, numIterations, numGames, startAtIteration = 0,keepFramesPerc=1.0):
+    def handlePreload(self, preloadFrames):
+        if preloadFrames != None:
+            with open(os.path.join(self.workingdir, preloadFrames + ".pickle"), "rb") as f:
+                preframes = pickle.load(f)
+                print("Preloaded %i frames" % len(preframes))
+                for f in preframes:
+                    self.frameHistory.append(f)
+                self.learnFrames(self.frameHistory, 0)
+                
+    def iterateLearning(self, numIterations, numGames, preloadFrames=None, startAtIteration = 0,keepFramesPerc=1.0):
         loadIteration = startAtIteration - 1
         if loadIteration > -1:
             self.loadForIteration(loadIteration)
             
+        
+        self.handlePreload(preloadFrames)
+        
         for i in range(startAtIteration, numIterations):
             print("Begin iteration %i" % i)
             impr = self.doLearningIteration(numGames, i, keepFramesPerc=keepFramesPerc)
