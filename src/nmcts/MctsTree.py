@@ -8,6 +8,8 @@ import numpy as np
 
 from nmcts.AbstractState import AbstractState  # @UnresolvedImport
 
+import random
+
 class TreeEdge():
     def __init__(self, priorP, parentNode):
         self.visitCount = 0
@@ -69,6 +71,11 @@ class TreeNode():
         return TreeNode(newState, parentEdge=self.edges[move], noiseMix = self.noiseMix)
     
     def getChildForMove(self, move):
+        assert self.isExpanded
+        
+        if self.edges[move] == None:
+            self.edges[move] = TreeEdge(self.movePMap[move], self)
+        
         child = self.edges[move].childNode
         
         if child == None:
@@ -101,7 +108,11 @@ class TreeNode():
         
         foundLegalMove = False
         
-        for idx in range(self.state.getMoveCount()):
+        # ensure a fair distribution if multiple moves tend to get the same moveValue
+        startIdx = random.randint(0, self.state.getMoveCount()-1)
+        for biasedIdx in range(self.state.getMoveCount()):
+            idx = (biasedIdx + startIdx) % self.state.getMoveCount()
+            
             if not self.state.isMoveLegal(idx):
                 continue
             

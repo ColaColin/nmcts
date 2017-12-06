@@ -7,6 +7,11 @@ Created on Oct 28, 2017
 
 from nmcts.AbstractState import AbstractState  # @UnresolvedImport
 
+from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution  # @UnresolvedImport
+
+
+import math
+
 class MNK():
     def __init__(self, m, n, k):
         self.m = m
@@ -16,9 +21,7 @@ class MNK():
         assert m >= k or n >= k
         
         # 0 is an empty field, 1 is the first player, 2 is the second player
-        self.board = []
-        for _ in range(n):
-            self.board.append([-1]*m)
+        self.board = initField(m,n,-1)
         self.turn = 0
         
         self.winningPlayer = -1
@@ -81,32 +84,42 @@ class MNK():
         return s
     
 class MNKState(AbstractState):
-    def __init__(self, mnk, mkeys = None):
+    def __init__(self, mnk):
         self.mnk = mnk
-        if mkeys == None:
-            self.moveKeys = []
-            for x in range(self.mnk.m):
-                for y in range(self.mnk.n):
-                    self.moveKeys.append((x, y))
-        else:
-            self.moveKeys = mkeys
         
     def canTeachSomething(self):
         return True
-        
+
+    def getMoveLocation(self, key):
+        y = math.floor(key / self.mnk.m)
+        x = int(key % self.mnk.m)
+        return x, y
+
     def getWinner(self):
         return self.mnk.winningPlayer
 
     def getMoveKey(self, x, y):
-        return self.moveKeys.index((x,y))
+        return y * self.mnk.m + x
 
     def isMoveLegal(self, move):
-        x, y = self.moveKeys[move]
+        x, y = self.getMoveLocation(move)
         return self.mnk.board[y][x] == -1
 
     def describeMove(self, move):
-        x, y = self.moveKeys[move]
+        x, y = self.getMoveLocation(move)
         return str(x) + "-" + str(y)
+
+    def augmentFrame(self, frame):
+        frame = [frame[0].clone(), list(frame[1]), frame[2], list(frame[3])]
+        
+        fState = frame[0].mnk
+        fMoves = frame[1]
+
+        augmentFieldAndMovesDistribution(fState.m, fState.n, fState.board, fMoves, 
+                                         lambda idx: self.getMoveLocation(idx),
+                                         lambda x,y: self.getMoveKey(x, y))
+
+        return frame
 
     def getPlayerOnTurnIndex(self):
         return self.mnk.turn % 2
@@ -121,7 +134,7 @@ class MNKState(AbstractState):
         return self.mnk.turn < c#True #self.mnk.turn < self.mnk.m * self.mnk.n * 0.75
     
     def getNewGame(self):
-        return MNKState(MNK(self.mnk.m, self.mnk.n, self.mnk.k), mkeys = self.moveKeys)
+        return MNKState(MNK(self.mnk.m, self.mnk.n, self.mnk.k))
     
     def getPlayerCount(self):
         return 2
@@ -141,13 +154,13 @@ class MNKState(AbstractState):
         return True
     
     def clone(self):
-        return MNKState(self.mnk.clone(), self.moveKeys)
+        return MNKState(self.mnk.clone())
         
     def getFrameClone(self):
         return self.clone()
         
     def simulate(self, move):
-        x, y = self.moveKeys[move]
+        x, y = self.getMoveLocation(move)
         self.mnk.place(x, y)
     
     def isTerminal(self):

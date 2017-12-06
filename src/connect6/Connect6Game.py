@@ -4,60 +4,10 @@ Created on Nov 23, 2017
 @author: cclausen
 '''
 
-from nmcts.AbstractState import AbstractState
+from nmcts.AbstractState import AbstractState  # @UnresolvedImport
+from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution  # @UnresolvedImport
 
 import math
-import random
-
-def initField(m, n, scalar):
-    result = []
-    for _ in range(n):
-        result.append([scalar] * m)
-    return result
-
-def mirrorField(m, n, field):
-    for y in range(n):
-        line = field[y]
-        for x in range(math.floor(m / 2)):
-            tmp = line[x]
-            line[x] = line[-1-x]
-            line[-1-x] = tmp
-
-def rotateFieldLeft(m, n, field):
-    tmp = initField(m, n, 0)
-    for y in range(n):
-        for x in range(m):
-            tmp[y][x] = field[y][x]
-            
-    for y in range(n):
-        for x in range(n):
-            field[x][y] = tmp[y][-1-x]
-
-def printField(m, n, field):
-    s = ""
-    for y in range(n):
-        for x in range(m):
-            s += "{0:.4f}".format(field[y][x]) + " "
-        s += "\n"
-    print(s)
-
-# m = 4
-# n = 4
-# f = initField(m, n, 1)
-# f[1][1] = 8
-# f[1][2] = 8
-# f[1][3] = 8
-# f[2][3] = 8
-# 
-# printField(m,n, f)
-# rotateFieldLeft(m,n, f)
-# printField(m,n, f)
-# rotateFieldLeft(m,n, f)
-# printField(m,n, f)
-# rotateFieldLeft(m,n, f)
-# printField(m,n, f)
-# rotateFieldLeft(m,n, f)
-# printField(m,n, f)
 
 class Connect6():
     def __init__(self, m=19, n = 19):
@@ -201,53 +151,15 @@ class Connect6State(AbstractState):
         return self.clone()
         
     def augmentFrame(self, frame):
-        dbg = False
-        
         frame = [frame[0].clone(), list(frame[1]), frame[2], list(frame[3])]
         
         fState = frame[0].c6
         fMoves = frame[1]
 
-        if dbg:
-            print("Pre Augment")
-            print(fState, fMoves)
+        augmentFieldAndMovesDistribution(fState.m, fState.n, fState.board, fMoves, 
+                                         lambda idx: self.getMoveLocation(idx),
+                                         lambda x,y: self.getMoveKey(x, y))
 
-        fStateField = fState.board
-        fMovesField = initField(fState.m, fState.n, 0)
-        for idx, fMove in enumerate(fMoves):
-            x, y = self.getMoveLocation(idx)
-            fMovesField[y][x] = fMove
-            
-        if dbg:
-            printField(fState.m, fState.n, fMovesField)
-        
-        if random.random() > 0.5:
-            if dbg:
-                print("Do mirror")
-            mirrorField(fState.m, fState.n, fStateField)
-            mirrorField(fState.m, fState.n, fMovesField)
-        
-        rotations = random.randint(0,3)
-        
-        if dbg:
-            print("Do %i rotations to the left" % rotations)
-        
-        for _ in range(rotations):
-            rotateFieldLeft(fState.m, fState.n, fStateField)
-            rotateFieldLeft(fState.m, fState.n, fMovesField)
-            
-        for y in range(fState.n):
-            for x in range(fState.m):
-                fMoves[self.getMoveKey(x, y)] = fMovesField[y][x]
-        
-        if dbg:
-            print("Post Augment")
-            print(fState, fMoves)
-            for idx, fMove in enumerate(fMoves):
-                x, y = self.getMoveLocation(idx)
-                fMovesField[y][x] = fMove
-            printField(fState.m, fState.n, fMovesField)
-        
         return frame
         
     def simulate(self, move):

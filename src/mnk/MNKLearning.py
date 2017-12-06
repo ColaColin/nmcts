@@ -15,6 +15,10 @@ import torch.optim as optim
 
 import multiprocessing as mp
 
+import numpy as np
+
+import os
+
 class MLP(nn.Module):
     def __init__(self, inSize, hiddens, moveSize, winSize):
         super(MLP, self).__init__()
@@ -50,7 +54,6 @@ class MNKNetworkLearner(AbstractTorchLearner):
         super(MNKNetworkLearner, self).__init__(framesPerIteration, batchSize, epochs, lr_schedule)
         self.m = m
         self.n = n
-        self.moveKeys = MNKState(MNK(m,n,3)).moveKeys
         self.hiddens = hiddens
         self.features = features
         self.initState(None)
@@ -73,13 +76,13 @@ class MNKNetworkLearner(AbstractTorchLearner):
         return 2
     
     def getMoveCount(self):
-        return len(self.moveKeys)
+        return self.m * self.n
     
     def createNetwork(self):
         if self.features == -1:
-            return MLP(self.m * self.n, self.hiddens, len(self.moveKeys), self.getPlayerCount())
+            return MLP(self.m * self.n, self.hiddens, self.getMoveCount(), self.getPlayerCount())
         else:
-            return CNN(self.m, self.n, self.features, self.hiddens, len(self.moveKeys), self.getPlayerCount())
+            return CNN(self.m, self.n, self.features, self.hiddens, self.getMoveCount(), self.getPlayerCount())
     
     def createOptimizer(self, net):
         # lr is set before first use elsewhere
@@ -102,11 +105,13 @@ def stateFormat(state):
 
 def mkParseCommand(m, n, k):
     def p(cmd):
-        ms = cmd.split("-")
-        x = int(ms[0])
-        y = int(ms[1])
-        # hmmmmmm
-        return MNKState(MNK(m,n,k)).getMoveKey(x,y)
+        try:
+            ms = cmd.split("-")
+            x = int(ms[0]) - 1
+            y = int(ms[1]) - 1
+            return MNKState(MNK(m,n,k)).getMoveKey(x,y)
+        except:
+            return -1
     return p
     
 def mkpath(m, n, k, h, f):
@@ -120,29 +125,43 @@ if __name__ == '__main__':
     mp.set_start_method("spawn")
     
     maxIter = 2000
-    framesPerIter = 125000
-    gamesPerIter = 2000
+    framesPerIter = 60000
+    gamesPerIter = 20
     
-    m = 6
-    n = 6
-    k = 5
-    f = 150
-    h = 1337
+    m = 9
+    n = 9
+    k = 4
+    f = 64
+    h = 250
     
     lrs = [0.1] * 3 + [0.05] * 10 + [0.005] * 17 + [0.001] * maxIter
     epochs = 10
-    epochRuns = 3
+    epochRuns = 5
     bsize = 200
-    mctsExpansions = 642
+    mctsExpansions = 542
     print("Using %i nodes per search tree" % mctsExpansions)
-    cgames = 500
+    cgames = 100
     threads = 5
+    path = mkpath(m,n,k,h,f)
+    assert os.path.exists(path), path + " does not exit!"
     learner = MNKNetworkLearner(framesPerIter, bsize, epochs, m,n,h,lrs,features=f)
     player = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner)
-    trainer = NeuralMctsTrainer(player, epochRuns, mkpath(m,n,k,h,f),
+    trainer = NeuralMctsTrainer(player, epochRuns, path,
                                 championGames=cgames, batchSize=bsize, threads=threads)
 
-#     trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=32)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=20)
+
+#     frames = player.selfPlayGamesAsTree(10000, 100)
+#     sss = 0
+#     for frame in frames:
+#         sss += np.sum(frame[3])
+# #         print(frame[0].mnk,
+# #               frame[1])
+# #         print(frame[2:])
+# #         print("___")
+#         
+#     print(sss / len(frames))
+
 
 
 # compare different iterations
@@ -150,9 +169,9 @@ if __name__ == '__main__':
 #     player0 = NeuralMctsPlayer(MNKState(MNK(m,n,k)), mctsExpansions, learner0)
 #     trainer0 = NeuralMctsTrainer(player0, epochRuns, mkpath(m, n, k, h, f),
 #                                   championGames=cgames, batchSize = bsize, threads=threads)
-#     for base in [5, 10, 15]:
+#     for base in [1, 10, 20]:
 #         trainer0.loadForIteration(base)
-#         for i in [19,21,27,30,34]:
+#         for i in [5,12,13]:
 #             trainer.loadForIteration(i)
 #             print("Playing with " + str(i))
 #             results, _ = trainer.bestPlayer.playAgainst(40, 40, [trainer0.bestPlayer])
@@ -165,8 +184,8 @@ if __name__ == '__main__':
 
 
 ##    play vs human
-    trainer.loadForIteration(34)
-    trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 1, [], stateFormat, mkParseCommand(m, n, k))
+#     trainer.loadForIteration(20)
+#     trainer.bestPlayer.playVsHuman(MNKState(MNK(m,n,k)), 1, [], stateFormat, mkParseCommand(m, n, k))
 
 
 

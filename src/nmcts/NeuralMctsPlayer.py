@@ -23,6 +23,31 @@ import random
 
 import time
 
+import math
+from _ast import arg
+
+import os
+
+def getBestNArgs(n, array):
+    if len(array) < n:
+        return np.arange(0, len(array))
+    
+    result = [np.argmin(array)] * n
+    for idx, pv in enumerate(array):
+        rIdx = 0
+        isAmongBest = False
+        while rIdx < n and pv > array[result[rIdx]]:
+            isAmongBest = True
+            rIdx += 1
+            
+        if isAmongBest:
+            if rIdx > 1:
+                for fp in range(rIdx-1):
+                    result[fp] = result[fp+1]
+            result[rIdx-1] = idx
+    
+    return result
+
 class NeuralMctsPlayer():
     def __init__(self, stateTemplate, mctsExpansions, learner):
         self.stateTemplate = stateTemplate.clone()
@@ -39,25 +64,44 @@ class NeuralMctsPlayer():
             node = node.selectMove(self.cpuct)
         return node
 
-    def _pickMove(self, moveP, state, explore=False):
+    def shuffleTogether(self, a, b):
+        combined = list(zip(a, b))
+        random.shuffle(combined)
+        a[:], b[:] = zip(*combined)
+
+    def _pickMoves(self, count, moveP, state, explore=False):
         ms = []
         ps = []
         psum = 0.0
+        possibleMoves = 0
         for idx, p in enumerate(moveP):
             if state.isMoveLegal(idx):
+                possibleMoves += 1
+                eps = 0.0001
+                psum += p + eps
+                
                 ms.append(idx)
-                ps.append(p)
-                psum += p
+                ps.append(p + eps)
 
         assert len(ms) > 0, "The state should have legal moves"
         
+        if possibleMoves <= count:
+            return ms
+
+        self.shuffleTogether(ms, ps)
+
         for idx in range(len(ps)):
             ps[idx] /= float(psum)
         
         if explore:
-            m = np.random.choice(ms, p = ps)
+            m = np.random.choice(ms, count, replace=False, p = ps)
         else:
-            m = ms[np.argmax(ps)]
+            if count > 1:
+                m = []
+                for arg in getBestNArgs(count, ps):
+                    m.append(ms[arg])
+            else:
+                m = [ms[np.argmax(ps)]]
         return m
 
     def evaluateByLearner(self, states):
@@ -106,7 +150,7 @@ class NeuralMctsPlayer():
         """
         ts = [TreeNode(s, noiseMix=noiseMix) if s != None else None for s in states]
         self.batchMcts(ts)
-        return [self._pickMove(s.getMoveDistribution(), s.state, False) if s != None else None for s in ts]
+        return [self._pickMoves(1, s.getMoveDistribution(), s.state, False)[0] if s != None else None for s in ts]
         
     def playVsHuman(self, state, humanIndex, otherPlayers, stateFormatter, commandParser):
         """
@@ -137,6 +181,137 @@ class NeuralMctsPlayer():
         print("Game over")
         print(stateFormatter(state))
         
+        # TODO verify this works, then use this on a small test problem to gauge the effect on .. everything
+    def selfPlayGamesAsTree(self, collectFrameCount, batchSize, splitsCount=2): #todo. Should be able to set this from somewhere...
+        """
+        collect frames from games played out in the form of a tree. Results are backpropagated, yielding better estimates about the value of a state
+        """
+        
+        pid = os.getpid()
+        
+        runningGames = []
+        unfinalizedFrames = []
+        finalizedFrames = []
+        
+        roots = 0
+        
+        lastLog = 5
+        
+        # collect frames from game trees
+        while len(finalizedFrames) < collectFrameCount:
+            if lastLog <= len(finalizedFrames):
+                print("[Process#%i] Collected %i / %i, running %i games with %i roots" % (pid, len(finalizedFrames), collectFrameCount, len(runningGames), roots))
+                lastLog += 500
+            
+            currentGameCount = len(runningGames)
+            
+            if currentGameCount == 0 or (currentGameCount < batchSize and random.random() > 0.875):
+#                 print("[Process#%i] New Game!!" % (pid))
+                runningGames.append(TreeNode(self.stateTemplate.getNewGame()))
+                unfinalizedFrames.append(None)
+            
+            currentGameCount = len(runningGames)
+            
+            newRunningGames = []
+            newUnfinalFrames = []
+
+            # do mcts searches for all current states            
+            batchCount = math.ceil(currentGameCount / batchSize)
+            for idx in range(batchCount):
+                startIdx = idx * batchSize
+                endIdx = (idx+1) * batchSize
+                batch = runningGames[startIdx:endIdx]
+                self.batchMcts(batch)
+            
+            eSplitAdd = 0 #max(0, batchSize - currentGameCount)
+            
+            if batchSize > currentGameCount:
+                eSplitAdd = 1
+            else:
+                eSplitAdd = -1
+            
+            # find the indices of games to be split in this iteration
+            splitIdx = random.randint(0, currentGameCount)
+            splitIdxs = []
+            for i in range(splitsCount + eSplitAdd):
+                offset = 0
+                for offset in range(currentGameCount + 1):
+                    nextIdx = (splitIdx + i + offset) % currentGameCount
+                    if offset >= currentGameCount or (unfinalizedFrames[nextIdx] != None and unfinalizedFrames[nextIdx][6] > 3 and unfinalizedFrames[nextIdx][5] < 2):
+                        splitIdxs.append(nextIdx)
+                        break
+
+            # iterate all current states
+            for gidx in range(currentGameCount):
+                g = runningGames[gidx]
+                md = g.getMoveDistribution()
+
+                assert np.sum(md) > 0
+                
+                splitExtra = 0
+                for sIdx in splitIdxs:
+                    if gidx == sIdx:
+                        splitExtra += 1
+                
+                mvs = self._pickMoves(1 + splitExtra, md, g.state, g.state.isEarlyGame())
+                
+                parentStateFrame = unfinalizedFrames[gidx]
+
+                ancestor = parentStateFrame
+                while ancestor != None:
+                    ancestor[5] += len(mvs) - 1
+                    ancestor = ancestor[4]
+                
+                if g.state.getTurn() > 0:
+                    isSplitting = len(mvs) > 1
+                    turnsSinceSplit = 0
+                    
+                    if not isSplitting and parentStateFrame != None:
+                        turnsSinceSplit = parentStateFrame[6] + 1
+                    
+                    stateFrame = [g.state.getFrameClone(),
+                                  md,
+                                  g.getBestValue(),
+                                  np.array([0.0] * g.state.getPlayerCount()),
+                                  parentStateFrame,
+                                  len(mvs),
+                                  turnsSinceSplit]
+                else:
+                    stateFrame = None
+                
+                for mv in mvs:
+                    nextState = g.getChildForMove(mv)
+                    
+                    if nextState.state.getTurn() == 1:
+                        roots += 1
+                    
+                    if not nextState.state.isTerminal():
+                        newRunningGames.append(nextState)
+                        newUnfinalFrames.append(stateFrame)
+                    else:
+                        stateResult = np.array(nextState.getTerminalResult())
+                        
+                        ancestor = stateFrame
+                        depth = 0
+                        while ancestor != None:
+                            ancestor[3] += stateResult
+                            depth += 1
+                            if np.sum(ancestor[3]) > ancestor[5] - 0.5:
+                                eps = 0.000000001
+                                ancestor[3] = (ancestor[3]) / (np.sum(ancestor[3]) + eps)
+                                if depth <= nextState.state.getPlayerCount() or ancestor[5] > 1:
+                                    finalizedFrames.append(ancestor[:4])
+
+                                if ancestor[4] == None:
+                                    roots -= 1
+                                    assert roots > -1
+                            ancestor = ancestor[4]
+                            
+            
+            runningGames = newRunningGames
+            unfinalizedFrames = newUnfinalFrames
+        
+        return finalizedFrames
         
     def selfPlayNGames(self, n, batchSize, keepFramesPerc = 1.0):
         """
@@ -155,7 +330,7 @@ class NeuralMctsPlayer():
                 batch.append(TreeNode(initialGameState))
                 gamesRunning += 1
             else:
-                batch.append(None)
+                batch.append(None) # TODO why this hacky stuff with NONE anyway?!
             bframes.append([])
         
         while gamesLeft > 0:
@@ -171,7 +346,7 @@ class NeuralMctsPlayer():
                 md = b.getMoveDistribution()
                 if b.state.getTurn() > 0:
                     bframes[idx].append([b.state.getFrameClone(), md, b.getBestValue()])
-                mv = self._pickMove(md, b.state, b.state.isEarlyGame())
+                mv = self._pickMoves(1, md, b.state, b.state.isEarlyGame())[0]
                 b = b.getChildForMove(mv)
                 
                 if b.state.isTerminal():
@@ -195,8 +370,7 @@ class NeuralMctsPlayer():
         return frames
         
         
-    def playAgainst(self, n, batchSize, others):
-        collectFrames=False
+    def playAgainst(self, n, batchSize, others, collectFrames=False):
         """
         play against other neural mcts players, in batches.
         Since multiple players are used this requires more of a lock-step kind of approach, which makes
@@ -261,7 +435,7 @@ class NeuralMctsPlayer():
                     if collectFrames:
                         gameFrames[gameIndex].append([b.state.getFrameClone(), md, b.getBestValue()])
                     
-                    mv = self._pickMove(md, b.state, False)
+                    mv = self._pickMoves(1, md, b.state, False)[0]
                     b = b.getChildForMove(mv)
                     
                     if b.state.isTerminal():

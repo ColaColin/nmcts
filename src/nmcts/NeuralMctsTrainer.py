@@ -49,20 +49,33 @@ class NeuralMctsTrainer():
         bestPlayers = int(playersN / 2)
         learners = int(playersN / 2)
         
+        dbgFrames = False
+        
         asyncs = []
         asyncsInverted = []
         for _ in range(self.threads):
             g = int(gamesPerProc / 2)
             asyncs.append(self.pool.apply_async(self.learner.playAgainst, 
-                args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers)))
+                args=(g, g, [self.learner] * (learners - 1) + [self.bestPlayer] * bestPlayers, dbgFrames)))
             asyncsInverted.append(self.pool.apply_async(self.bestPlayer.playAgainst, 
-                args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners)))
+                args=(g, g, [self.bestPlayer] * (bestPlayers - 1) + [self.learner] * learners, dbgFrames)))
         
         sumResults = [0,0,0]
         
+        firstWins = 0
+        
         for asy in asyncs:
-            r, _ = asy.get()
+            r, gframes = asy.get()
+            
+            if dbgFrames:
+                for f in gframes[0]:
+                    print(f[0].c6)
+                    print(list(reversed(sorted(f[1])))[:5], f[1])
+                    print(f[3])
+                    print("...")
+                
             sumResults[2] += r[-1]
+            firstWins += r[0]
             for i in range(len(r)-1):
                 if i < learners:
                     sumResults[0] += r[i]
@@ -70,8 +83,17 @@ class NeuralMctsTrainer():
                     sumResults[1] += r[i]
         
         for asy in asyncsInverted:
-            r, _ = asy.get()
+            r, gframes = asy.get()
+            
+            if dbgFrames:
+                for f in gframes[0]:
+                    print(f[0].c6)
+                    print(list(reversed(sorted(f[1])))[:5], f[1])
+                    print(f[3])
+                    print("...")
+            
             sumResults[2] += r[-1]
+            firstWins += r[0]
             for i in range(len(r)-1):
                 if i < bestPlayers:
                     sumResults[1] += r[i]
@@ -83,8 +105,8 @@ class NeuralMctsTrainer():
         myWins = sumResults[0]
         otherWins = sumResults[1]
         eps = 0.00000001
-        print("Learner wins %i, best player wins %i, %i draws: Winrate of %f" % 
-              (myWins, otherWins, sumResults[-1], (myWins + eps) / (myWins + otherWins + eps)))
+        print("Learner wins %i, best player wins %i, %i draws, %i first move wins: Winrate of %f" % 
+              (myWins, otherWins, sumResults[-1], firstWins, (myWins + eps) / (myWins + otherWins + eps)))
         
         improved = myWins > (myWins + otherWins) * 0.55
         if improved:
@@ -139,17 +161,18 @@ class NeuralMctsTrainer():
         t = time.time()
         t0 = t
         
-        gamesPerProc = int(games / self.threads)
-        missing = games % self.threads
-        assert missing == 0 #just be careful...
+        maxFrames = int(self.learner.learner.getFramesPerIteration() / 3)
         
-        print("Games per process: " + str(gamesPerProc))
+        framesPerProc = int(maxFrames / self.threads)
+        
+        print("Frames per process: " + str(framesPerProc))
         
         asyncs = []
         
         for _ in range(self.threads):
-            g = gamesPerProc
-            asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize, keepFramesPerc)))
+#             g = gamesPerProc
+#             asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayNGames, args=(g, self.batchSize, keepFramesPerc)))
+            asyncs.append(self.pool.apply_async(self.bestPlayer.selfPlayGamesAsTree, args=(framesPerProc, self.batchSize)))
         
         cframes = 0
         ignoreFrames = 0
@@ -157,17 +180,15 @@ class NeuralMctsTrainer():
         newFrames = []
         for asy in asyncs:
             for f in asy.get():
-                if (f[3][0] == 0 or f[3][0] == 1): 
-                    # "no draws" #TODO make this work together with some abstract method!!!
-                    # TODO, also if too many frames are filtered another round of games has to be played...
-                    cframes += 1
-                    newFrames.append(f)
+                cframes += 1
+                if cframes < maxFrames:
                     learnFrames.append(f)
-                else:
-                    ignoreFrames += 1
+                
+                newFrames.append(f)
         
         print("Collected %i games with %i frames in %f" % (games, cframes, (time.time() - t)))
         
+        # TODO make an abstracted method to ignore frames for reasons unknown to this code
         if ignoreFrames > 0:
             print("Ignored %i frames" % ignoreFrames)
         
@@ -182,19 +203,21 @@ class NeuralMctsTrainer():
         for f in newFrames:
             self.frameHistory.append(f)
         
+        while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
+            del self.frameHistory[0]
+
+        self.saveFrames(iteration)
+        
         improved = self.learnFrames(learnFrames, iteration)
 
-        tu = time.time()
-
-        print("Updating frame history ...")
-        self.updateFrameHistory(improved)
-        print("Updates done in %f" % (time.time() - tu))
+#         tu = time.time()
+#         print("Updating frame history ...")
+#         self.updateFrameHistory(improved)
+#         print("Updates done in %f" % (time.time() - tu))
 
         print("Iteration completed in %f" % (time.time() - t0))
         
         return improved
-
-        #TODO should the learner be reset to the bestplayer here? Or keep the not-so-optimal learning progress?
 
     def learnFrames(self, learnFrames, iteration):
         t = time.time()
@@ -211,7 +234,7 @@ class NeuralMctsTrainer():
                 self.bestPlayer = self.learner.clone()
                 improved = True
                 runs += 1
-
+        #TODO should the learner be reset to the bestplayer here? Or keep the not-so-optimal learning progress?
         print("Done learning in %f" % (time.time() - t))
         return improved
 
@@ -235,23 +258,42 @@ class NeuralMctsTrainer():
         with open(os.path.join(self.workingdir, "frameHistory" + str(iteration) + ".pickle"), "rb") as f:
             self.frameHistory = pickle.load(f)
             print("Loaded %i frames " % len(self.frameHistory))
-        
+    
+    def saveFrames(self, iteration):
+        with open(os.path.join(self.workingdir, "frameHistory"+ str(iteration) +".pickle"), "wb") as f:
+            pickle.dump(self.frameHistory, f)
+            print("Saved %i frames for iteration %i" % (len(self.frameHistory), iteration))
+    
     def saveForIteration(self, iteration, improved):
         if improved:
             self.bestPlayer.learner.saveState(os.path.join(self.workingdir, "bestPlayer.iter" + str(iteration)))
         self.learner.learner.saveState(os.path.join(self.workingdir, "learner.iter" + str(iteration)))
-        with open(os.path.join(self.workingdir, "frameHistory"+ str(iteration) +".pickle"), "wb") as f:
-            pickle.dump(self.frameHistory, f)
 
     def handlePreload(self, preloadFrames):
         if preloadFrames != None:
             with open(os.path.join(self.workingdir, preloadFrames + ".pickle"), "rb") as f:
                 preframes = pickle.load(f)
                 print("Preloaded %i frames" % len(preframes))
+                
+#                 c = 0
+#                 for f in preframes:
+#                     if f[3][0] > 0.00001 and f[3][0] < 0.999999:
+#                         c += 1
+#                 print(c)
+#                 for f in preframes[8090:8100]:
+#                     print(f[0].c6)
+#                     print(f[1])
+#                     print(f[3])
+#                     print(",,,")
+#                     
+#                 exit(0)
+                
                 for f in preframes:
                     self.frameHistory.append(f)
                 self.learnFrames(self.frameHistory, 0)
                 
+                
+    # TODO preload does not store a bestPlayer. Which is not optimal at all...
     def iterateLearning(self, numIterations, numGames, preloadFrames=None, startAtIteration = 0,keepFramesPerc=1.0):
         loadIteration = startAtIteration - 1
         if loadIteration > -1:

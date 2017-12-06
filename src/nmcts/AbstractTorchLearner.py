@@ -23,6 +23,8 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
         self.maxFramesLearntPerIteration = framesPerIteration
         self.batchSize = batchSize
         self.epochs = epochs
+        self.netInIsCached = False
+        self.netInCache = None
     
     def getFramesPerIteration(self):
         return self.maxFramesLearntPerIteration
@@ -95,14 +97,23 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     this has to be able to deal with None values in the batch!
     """
     def evaluate(self, batch):
-        assert len(batch) <= self.maxFramesLearntPerIteration
+        assert len(batch) <= self.batchSize
         
+        if self.netInIsCached:#
+            netIn = self.netInCache
+        else:
+            netIn = Variable(torch.zeros((self.batchSize, ) + self.getNetInputShape())).cuda()
+            self.netInCache = netIn
+            self.netInIsCached = True
+
         for idx, b in enumerate(batch):
             if b != None:
                 state = b
-                self.fillNetworkInput(state, self.networkInput, idx)
+                self.fillNetworkInput(state, self.networkInput , idx)
         
-        netIn = Variable(self.networkInput[:len(batch)]).cuda()
+        #TODO systematically analyse all interaction with gpu memory and apply new findings
+        netIn[:len(batch)] = self.networkInput[:len(batch)]
+        
         moveP, winP = self.net(netIn)
         
         results = []
@@ -126,6 +137,8 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
     
     
     def fillTrainingSet(self, frames):
+        random.shuffle(frames)
+        
         self.moveOutput.fill_(0)
         self.winOutput.fill_(0)
         self.networkInput.fill_(0)
@@ -193,15 +206,11 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 mO, wO = self.net(x)
                 
 #                 print("...")
-# #                 print(x[0], wO[0], yW[0])
-# #                 print("XXXX")
-# #                 print(x[1], wO[1], yW[1])
+#                 print(x[0], wO[0], yW[0])
+#                 print("XXXX")
+#                 print(x[1], wO[1], yW[1])
 #                 print(x[:,0], wO, yW)
-#                 xz = x.clone()
-#                 xz[:] = -10.42
-#                 print(self.net(xz)[1])
 #                 print("===")
-#                 exit(0)
                 
                 eps = 1e-6
                 mLoss = -torch.sum(torch.log(mO + eps) * yM) / self.batchSize
