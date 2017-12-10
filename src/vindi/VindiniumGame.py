@@ -5,7 +5,7 @@ with parts from https://github.com/renatopp/vindinium-python
 
 '''
 
-from nmcts.AbstractState import AbstractState  # @UnresolvedImport
+from nmcts.AbstractState import AbstractState
 
 import random
 import json

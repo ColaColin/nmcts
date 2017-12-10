@@ -4,8 +4,8 @@ Created on Nov 23, 2017
 @author: cclausen
 '''
 
-from nmcts.AbstractState import AbstractState  # @UnresolvedImport
-from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution  # @UnresolvedImport
+from nmcts.AbstractState import AbstractState
+from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution
 
 import math
 
@@ -93,15 +93,22 @@ class Connect6():
 class Connect6State(AbstractState):
     def __init__(self, c6):
         self.c6 = c6
+        self.legalMoves = None
         
     def canTeachSomething(self):
         return True
-        
+    
+    def findLegalMoves(self):
+        self.legalMoves = []
+        for moveIdx in range(self.getMoveCount()):
+            if self.isMoveLegal(moveIdx):
+                self.legalMoves.append(moveIdx)
+    
     def getWinner(self):
         return self.c6.winningPlayer
 
     def getMoveLocation(self, key):
-        y = math.floor(key / self.c6.m)
+        y = int(key / self.c6.m)
         x = int(key % self.c6.m)
         return x, y
 
@@ -111,6 +118,11 @@ class Connect6State(AbstractState):
     def isMoveLegal(self, move):
         x, y = self.getMoveLocation(move)
         return self.c6.board[y][x] == -1
+
+    def getLegalMoves(self):
+        if None == self.legalMoves:
+            self.findLegalMoves()
+        return self.legalMoves
 
     def getPlayerOnTurnIndex(self):
         return self.c6.getPlayerIndexOnTurn()
@@ -165,6 +177,7 @@ class Connect6State(AbstractState):
     def simulate(self, move):
         x, y = self.getMoveLocation(move)
         self.c6.place(x, y)
+        self.legalMoves = None
     
     def isTerminal(self):
         return self.c6.hasEnded()

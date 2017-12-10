@@ -5,17 +5,15 @@ Created on Oct 28, 2017
 '''
 
 
-from nmcts.AbstractTorchLearner import AbstractTorchLearner  # @UnresolvedImport
-from nmcts.NeuralMctsTrainer import NeuralMctsTrainer  # @UnresolvedImport
-from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
-from mnk.MNKGame import MNK, MNKState  # @UnresolvedImport
+from nmcts.AbstractTorchLearner import AbstractTorchLearner
+from nmcts.NeuralMctsTrainer import NeuralMctsTrainer
+from nmcts.NeuralMctsPlayer import NeuralMctsPlayer
+from mnk.MNKGame import MNK, MNKState
 
 import torch.nn as nn
 import torch.optim as optim
 
 import multiprocessing as mp
-
-import numpy as np
 
 import os
 

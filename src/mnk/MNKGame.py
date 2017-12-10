@@ -5,9 +5,9 @@ Created on Oct 28, 2017
 '''
 
 
-from nmcts.AbstractState import AbstractState  # @UnresolvedImport
+from nmcts.AbstractState import AbstractState
 
-from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution  # @UnresolvedImport
+from nmcts.FieldAugments import initField, augmentFieldAndMovesDistribution
 
 
 import math

@@ -6,7 +6,7 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-from nmcts.AbstractState import AbstractState  # @UnresolvedImport
+from nmcts.AbstractState import AbstractState
 
 import random
 
@@ -22,18 +22,24 @@ class TreeEdge():
         self.childNode = None
         
 class TreeNode():
-    # noiseMix of 0.2 has shown better play-strength than no noise at all in mnk 5,5,4 and is therefore assumed to be a good default to use
-    def __init__(self, state, parentEdge=None, noiseMix = 0.2):
+    # noiseMix of 0.2 has shown better play-strength than no noise at all in mnk 5,5,4 and is therefore assumed to be a good default to use. #TODO this seems questionable?!
+    def __init__(self, state, parentEdge=None, noiseMix = 0.142): 
         assert isinstance(state, AbstractState)
         self.state = state
-        self.edges = [None] * state.getMoveCount()
+        mc = state.getMoveCount()
+        self.edges = [None] * mc
         self.parent = parentEdge
         self.terminalResult = None
         self.noiseMix = noiseMix
-        self.dconst = [0.03] * self.state.getMoveCount()
+        self.dconst = [0.03] * mc
         self.movePMap = None
         self.isExpanded = False
         self.allVisits = 0
+        
+        self.hasHighs = False
+        self.highs = None
+        self.lowS = 0
+        self.lowQ = 0
         
     def getBestValue(self):
         bv = 0
@@ -56,6 +62,11 @@ class TreeNode():
         self.movePMap = None
         self.isExpanded = False
         self.allVisits = 0
+        
+        self.hasHighs = False
+        self.highs = None
+        self.lowS = 0
+        self.lowQ = 0
         
     def countTreeSize(self):
         c = 1
@@ -96,27 +107,73 @@ class TreeNode():
         
         return r
     
-    def selectMove(self, cpuct):
+    def getVisitsFactor(self):
+        # .0001 means that in the case of a new node with zero visits it will chose whatever has the best P
+        # instead of just the move with index 0
+        # but there is little effect in other cases
+        return self.allVisits ** 0.5 + 0.0001
+    
+    def groupCurrentMoves(self, cpuct):
+        lMoves = self.state.getLegalMoves()
+        numLegalMoves = len(lMoves)
+        
+        moves = []
+        
+        for idx in range(numLegalMoves):
+            move = lMoves[idx]
+            
+            e = self.edges[move]
+            
+            if e != None:
+                q = e.meanValue
+                p = e.priorP
+                vc = e.visitCount
+            else:
+                q = 0.5
+                p = self.movePMap[move]
+                vc = 0.0
+                
+            s = cpuct * p / (1.0+vc)
+            
+            moves.append((move, q, s))
+        
+        f = self.getVisitsFactor()
+        
+        moves.sort(key=lambda x: x[1] + x[2] * f, reverse=True)
+        
+        lowFactor = 0.9042
+        
+        highLen = len(moves) - int(len(moves) * lowFactor)
+        
+        minHighs = 5
+        if highLen < minHighs:
+            highLen = minHighs
+        
+        lows = moves[highLen:]
+        
+        self.highs = list(map(lambda x: x[0], moves[:highLen]))
+        self.lowQ = max(map(lambda x: x[1], lows))
+        self.lowS = max(map(lambda x: x[2], lows))
+        self.hasHighs = True
+
+
+    def pickMoveFromMoveKeys(self, moveKeys, cpuct):
+        allVisitsSq = self.getVisitsFactor()
+        
+        numKeys = len(moveKeys)
+        assert numKeys > 0
+        dirNoise = np.random.dirichlet(self.dconst[:numKeys])
+        startIdx = random.randint(0, numKeys-1)
+        
         moveName = None
         moveValue = 0
-        allVisits = self.allVisits
         
-        allVisitsSq = allVisits ** 0.5
-
-        # unlike alphago zero this is added on every move #TODO judge if that is really a good idea
-        dirNoise = np.random.dirichlet(self.dconst)
-        
-        foundLegalMove = False
-        
-        # ensure a fair distribution if multiple moves tend to get the same moveValue
-        startIdx = random.randint(0, self.state.getMoveCount()-1)
-        for biasedIdx in range(self.state.getMoveCount()):
-            idx = (biasedIdx + startIdx) % self.state.getMoveCount()
+        for biasedIdx in range(numKeys):
+            idx = (biasedIdx + startIdx) % numKeys
             
-            if not self.state.isMoveLegal(idx):
-                continue
+            iNoise = dirNoise[idx]
             
-            foundLegalMove = True
+            idx = moveKeys[idx]
             
             e = self.edges[idx]
             
@@ -129,19 +186,35 @@ class TreeNode():
                 p = self.movePMap[idx]
                 vc = 0
             
-            #q = (q * 2.0) - 1.0
-            p = (1-self.noiseMix) * p + self.noiseMix * dirNoise[idx]
-            
-            # .01 means that in the case of a new node with zero visits it will chose whatever has the best P
-            # instead of just the move with index 0
-            # but there is little effect in other cases
-            u = cpuct * p * ((.01 + allVisitsSq) / (1 + vc))
+            p = (1-self.noiseMix) * p + self.noiseMix * iNoise
+
+            u = cpuct * p * (allVisitsSq / (1.0 + vc))
             value = q + u
-            if (moveName == None or value > moveValue):
+            if (moveName == None or value > moveValue) and self.state.isMoveLegal(idx):
                 moveName = idx
                 moveValue = value
                 
-        assert foundLegalMove
+        return moveName, moveValue
+    
+    def selectMove(self, cpuct):
+        assert self.isExpanded
+        
+        if not self.hasHighs:
+            self.groupCurrentMoves(cpuct)
+             
+        moveName, fastMoveValue = self.pickMoveFromMoveKeys(self.highs, cpuct)
+        lowersBestValue = self.lowQ + self.lowS * self.getVisitsFactor()
+        
+        if lowersBestValue >= fastMoveValue:
+            self.groupCurrentMoves(cpuct)
+            moveName, _ = self.pickMoveFromMoveKeys(self.highs, cpuct)
+        
+#         moveName, _ = self.pickMoveFromMoveKeys(self.state.getLegalMoves(), cpuct)
+        
+        # this is the slow code replaced by the high-low split of groupCurrentMoves
+        # !!!!!! to verify via this assertion remove the randomness from pickMoveFromMoveKeys!
+#         moveNameSlow, _ = self.pickMoveFromMoveKeys(self.state.getLegalMoves(), cpuct)
+#         assert moveName == moveNameSlow
         
         if self.edges[moveName] == None:
             self.edges[moveName] = TreeEdge(self.movePMap[moveName], self)

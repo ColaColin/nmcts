@@ -4,11 +4,11 @@ Created on Nov 1, 2017
 @author: cclausen
 '''
 
-from nmcts.AbstractTorchLearner import AbstractTorchLearner  # @UnresolvedImport
-from nmcts.NeuralMctsTrainer import NeuralMctsTrainer  # @UnresolvedImport
-from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
+from nmcts.AbstractTorchLearner import AbstractTorchLearner
+from nmcts.NeuralMctsTrainer import NeuralMctsTrainer
+from nmcts.NeuralMctsPlayer import NeuralMctsPlayer
 
-from vindi.VindiniumGame import VindiniumState  # @UnresolvedImport
+from vindi.VindiniumGame import VindiniumState
 
 import torch
 import torch.nn as nn

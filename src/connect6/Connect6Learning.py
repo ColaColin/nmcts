@@ -4,10 +4,10 @@ Created on Nov 23, 2017
 @author: cclausen
 '''
 
-from nmcts.AbstractTorchLearner import AbstractTorchLearner  # @UnresolvedImport
-from nmcts.NeuralMctsTrainer import NeuralMctsTrainer  # @UnresolvedImport
-from nmcts.NeuralMctsPlayer import NeuralMctsPlayer  # @UnresolvedImport
-from connect6.Connect6Game import Connect6, Connect6State # @UnresolvedImport
+from nmcts.AbstractTorchLearner import AbstractTorchLearner
+from nmcts.NeuralMctsTrainer import NeuralMctsTrainer
+from nmcts.NeuralMctsPlayer import NeuralMctsPlayer
+from connect6.Connect6Game import Connect6, Connect6State
 
 import torch.nn as nn
 import torch.optim as optim
@@ -128,9 +128,10 @@ class C6NetworkLearner(AbstractTorchLearner):
         return optim.Adam(net.parameters(), lr=0.001)
     
     def fillNetworkInput(self, state, tensor, batchIndex):
-        for x in range(self.m):
-            for y in range(self.n):
-                b = state.c6.board[y][x]
+        for y in range(self.n):
+            bline = state.c6.board[y]
+            for x in range(self.m):
+                b = bline[x]
                 if b != -1:
                     b = state.mapPlayerIndexToTurnRel(b)
                 tensor[batchIndex,0,x,y] = b
@@ -170,7 +171,7 @@ if __name__ == '__main__':
     epochs = 16
     epochRuns = 2
     bsize = 70
-    mctsExpansions = 999
+    mctsExpansions = 1001
     print("Using %i nodes per search tree" % mctsExpansions)
     cgames = 72
     threads = 4
@@ -180,7 +181,7 @@ if __name__ == '__main__':
     player = NeuralMctsPlayer(Connect6State(Connect6(m=m, n=n)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, path,
                                 championGames=cgames, batchSize=bsize, threads=threads)
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=6)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=11)
     
     # compare untrained + 5 nodes with untrained + 1500 nodes
 #     l0 = C6NetworkLearner(framesPerIter, bsize, epochs, h,lrs,features=f)
@@ -199,9 +200,9 @@ if __name__ == '__main__':
 #     player0 = NeuralMctsPlayer(Connect6State(Connect6(m=m, n=n)), mctsExpansions, learner0)
 #     trainer0 = NeuralMctsTrainer(player0, epochRuns, mkpath(m, n, bf, f, blocks),
 #                                   championGames=cgames, batchSize = bsize, threads=threads)
-#     for base in [5]:
+#     for base in [10]:
 #         trainer0.loadForIteration(base)
-#         for i in [1, 3]:
+#         for i in [5, 8]:
 #             trainer.loadForIteration(i)
 #             print("Playing with " + str(i))
 #             results, _ = trainer.bestPlayer.playAgainst(40, 40, [trainer0.bestPlayer])
@@ -210,11 +211,11 @@ if __name__ == '__main__':
 #             print("Results %i vs %i are " % (base, i), resultsInv)
 #             iWins = results[0] + resultsInv[1]
 #             oWins = results[1] + resultsInv[0]
-#             print("Overall win rate of %i vs %i is %f" % (i, base, iWins / float(iWins + oWins)))
+#             print("Overall win rate of %i vs %i is %f" % (base, i, oWins / float(iWins + oWins)))
 
 
 ##    play vs human
-#     trainer.loadForIteration(5)
+#     trainer.loadForIteration(10)
 #     trainer.bestPlayer.playVsHuman(Connect6State(Connect6(m=m, n=n)), 1, [], stateFormat, mkParseCommand(m,n))
 
 

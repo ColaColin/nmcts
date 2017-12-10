@@ -17,16 +17,17 @@ Created on Oct 27, 2017
 
 import numpy as np
 
-from nmcts.MctsTree import TreeNode  # @UnresolvedImport
+from nmcts.MctsTree import TreeNode
 
 import random
 
 import time
 
 import math
-from _ast import arg
 
 import os
+
+import numpy as np
 
 def getBestNArgs(n, array):
     if len(array) < n:
@@ -49,11 +50,13 @@ def getBestNArgs(n, array):
     return result
 
 class NeuralMctsPlayer():
+    
+    
     def __init__(self, stateTemplate, mctsExpansions, learner):
         self.stateTemplate = stateTemplate.clone()
         self.mctsExpansions = mctsExpansions # a value of 1 here will make it basically play by the network probabilities in a greedy way #TODO test that
         self.learner = learner
-        self.cpuct = 1.0 #hmm TODO: investigate the influence of this factor on the speed of learning
+        self.cpuct = 0.5424242 #hmm TODO: investigate the influence of this factor on the speed of learning
 
     def clone(self):
         return NeuralMctsPlayer(self.stateTemplate, self.mctsExpansions, 
@@ -115,7 +118,7 @@ class NeuralMctsPlayer():
         for idx, f in enumerate(nodes):
             result.append(( startIndex + idx, f.getMoveDistribution(), f.getBestValue() ))
         return result
-
+    
     def batchMcts(self, states):
         """
         runs batched mcts guided by the learner
@@ -125,13 +128,18 @@ class NeuralMctsPlayer():
         """
         assert self.mctsExpansions > 0
         workspace = states
+        
+        t = time.time()
+        
         for _ in range(self.mctsExpansions):
             workspace = [self._selectDown(s) if s != None else None for s in workspace]
+
             evalout = self.evaluateByLearner(workspace)
             for idx, ev in enumerate(evalout):
                 node = workspace[idx]
                 if node == None:
                     continue
+                
                 w = ev[1]
                 if node.state.isTerminal():
                     w = node.getTerminalResult()
@@ -139,6 +147,8 @@ class NeuralMctsPlayer():
                     node.expand(ev[0])
                 node.backup(w)
                 workspace[idx] = states[idx]
+                
+        print(time.time() - t)
     
     # todo if one could get the caller to deal with the treenode data it might be possible to not throw away the whole tree that was build, increasing play strength
     def findBestMoves(self, states, noiseMix=0.2):
@@ -150,7 +160,8 @@ class NeuralMctsPlayer():
         """
         ts = [TreeNode(s, noiseMix=noiseMix) if s != None else None for s in states]
         self.batchMcts(ts)
-        return [self._pickMoves(1, s.getMoveDistribution(), s.state, False)[0] if s != None else None for s in ts]
+        bmoves = [self._pickMoves(1, s.getMoveDistribution(), s.state, False)[0] if s != None else None for s in ts]
+        return bmoves
         
     def playVsHuman(self, state, humanIndex, otherPlayers, stateFormatter, commandParser):
         """
@@ -175,13 +186,13 @@ class NeuralMctsPlayer():
                     m = commandParser(input("Your turn:"))
                     if m == -1:
                         print("That cannot be parsed, try again.")
-            print(pindex+1, m)
             state.simulate(m)
             
         print("Game over")
         print(stateFormatter(state))
         
         # TODO verify this works, then use this on a small test problem to gauge the effect on .. everything
+        # Result 1: it does work. On 19x19 connect6. So much for a small test problem... still need to gauge the effects...
     def selfPlayGamesAsTree(self, collectFrameCount, batchSize, splitsCount=2): #todo. Should be able to set this from somewhere...
         """
         collect frames from games played out in the form of a tree. Results are backpropagated, yielding better estimates about the value of a state
@@ -205,7 +216,7 @@ class NeuralMctsPlayer():
             
             currentGameCount = len(runningGames)
             
-            if currentGameCount == 0 or (currentGameCount < batchSize and random.random() > 0.875):
+            if currentGameCount == 0 or currentGameCount == int(batchSize/2) or (currentGameCount < batchSize and random.random() > 0.8025742):
 #                 print("[Process#%i] New Game!!" % (pid))
                 runningGames.append(TreeNode(self.stateTemplate.getNewGame()))
                 unfinalizedFrames.append(None)
@@ -226,7 +237,7 @@ class NeuralMctsPlayer():
             eSplitAdd = 0 #max(0, batchSize - currentGameCount)
             
             if batchSize > currentGameCount:
-                eSplitAdd = 1
+                eSplitAdd = 2
             else:
                 eSplitAdd = -1
             
@@ -424,10 +435,10 @@ class NeuralMctsPlayer():
                 
 #                 print(pIndex, someGame.state.c6, ["{0:.5f}".format(x) for x in someGame.getMoveDistribution()])
                 
-                for idx in range(batchSize):
+                newBatch = []
+                
+                for idx in range(len(batch)):
                     b = batch[idx]
-                    if b == None:
-                        continue
                     md = b.getMoveDistribution()
                     
                     gameIndex = batchSize * bi + idx
@@ -439,17 +450,19 @@ class NeuralMctsPlayer():
                     b = b.getChildForMove(mv)
                     
                     if b.state.isTerminal():
-                        
                         if collectFrames:
                             for f in gameFrames[gameIndex]:
                                 f.append(b.getTerminalResult())
                                 
                         gamesActive -= 1
                         results[b.state.getWinner()] += 1
-                        batch[idx] = None
                     else:
                         b.cutTree()
-                        batch[idx] = b
+                        newBatch.append(b)
+                    
+                batch = newBatch
+                
+                
         
         return results, gameFrames
         

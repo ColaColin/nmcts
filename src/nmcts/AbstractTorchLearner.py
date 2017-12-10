@@ -11,7 +11,7 @@ import torch
 from torch.autograd import Variable
 import numpy as np
 
-from nmcts.AbstractLearner import AbstractLearner  # @UnresolvedImport
+from nmcts.AbstractLearner import AbstractLearner
 
 import random
 
@@ -111,7 +111,7 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 state = b
                 self.fillNetworkInput(state, self.networkInput , idx)
         
-        #TODO systematically analyse all interaction with gpu memory and apply new findings
+        #TODO systematically analyze all interaction with gpu memory and apply new findings
         netIn[:len(batch)] = self.networkInput[:len(batch)]
         
         moveP, winP = self.net(netIn)
@@ -220,6 +220,8 @@ class AbstractTorchLearner(AbstractLearner, metaclass=abc.ABCMeta):
                 
                 loss = mLoss + wLoss
                 loss.backward()
+                
+                # TODO maybe use some gradient clipping to be save?
                 
                 self.opt.step()
                 

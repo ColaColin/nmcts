@@ -15,7 +15,7 @@ import random
 import os
 import pickle
 
-from nmcts.MctsTree import TreeNode  # @UnresolvedImport
+from nmcts.MctsTree import TreeNode
 
 class NeuralMctsTrainer():
     

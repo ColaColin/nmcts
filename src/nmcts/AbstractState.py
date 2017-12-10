@@ -21,6 +21,13 @@ class AbstractState(metaclass=abc.ABCMeta):
         """
         return True if the given move is legal
         """
+        
+    @abc.abstractmethod
+    def getLegalMoves(self):
+        """
+        return a list of all indices of legal moves
+        performance relevant. cache it hard
+        """
     
     @abc.abstractmethod
     def getPlayerOnTurnIndex(self):
