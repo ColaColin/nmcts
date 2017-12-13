@@ -85,7 +85,9 @@ class MNK():
     
 class MNKState(AbstractState):
     def __init__(self, mnk):
+        super(MNKState, self).__init__()
         self.mnk = mnk
+        
         
     def canTeachSomething(self):
         return True
@@ -160,6 +162,7 @@ class MNKState(AbstractState):
         return self.clone()
         
     def simulate(self, move):
+        super(MNKState, self).simulate(move)
         x, y = self.getMoveLocation(move)
         self.mnk.place(x, y)
     

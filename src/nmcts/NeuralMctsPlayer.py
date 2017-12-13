@@ -129,7 +129,7 @@ class NeuralMctsPlayer():
         assert self.mctsExpansions > 0
         workspace = states
         
-        t = time.time()
+#         t = time.time()
         
         for _ in range(self.mctsExpansions):
             workspace = [self._selectDown(s) if s != None else None for s in workspace]
@@ -148,7 +148,7 @@ class NeuralMctsPlayer():
                 node.backup(w)
                 workspace[idx] = states[idx]
                 
-        print(time.time() - t)
+#         print(time.time() - t)
     
     # todo if one could get the caller to deal with the treenode data it might be possible to not throw away the whole tree that was build, increasing play strength
     def findBestMoves(self, states, noiseMix=0.2):
@@ -174,6 +174,8 @@ class NeuralMctsPlayer():
         if humanIndex != -1:
             allPlayers.insert(humanIndex, None)
         
+        print("You are player " + str(humanIndex))
+        
         while not state.isTerminal():
             print(stateFormatter(state))
             pindex = state.getPlayerOnTurnIndex()
@@ -186,6 +188,9 @@ class NeuralMctsPlayer():
                     m = commandParser(input("Your turn:"))
                     if m == -1:
                         print("That cannot be parsed, try again.")
+                    if not state.isMoveLegal(m):
+                        print("That move is illegal, try again.")
+                        m = -1
             state.simulate(m)
             
         print("Game over")
@@ -208,15 +213,18 @@ class NeuralMctsPlayer():
         
         lastLog = 5
         
+        rounds = 0
+        
         # collect frames from game trees
         while len(finalizedFrames) < collectFrameCount:
+            rounds += 1
             if lastLog <= len(finalizedFrames):
                 print("[Process#%i] Collected %i / %i, running %i games with %i roots" % (pid, len(finalizedFrames), collectFrameCount, len(runningGames), roots))
                 lastLog += 500
             
             currentGameCount = len(runningGames)
             
-            if currentGameCount == 0 or currentGameCount == int(batchSize/2) or (currentGameCount < batchSize and random.random() > 0.8025742):
+            if currentGameCount == 0 or currentGameCount == int(batchSize/2) or (currentGameCount < batchSize and random.random() > 0.7025742):
 #                 print("[Process#%i] New Game!!" % (pid))
                 runningGames.append(TreeNode(self.stateTemplate.getNewGame()))
                 unfinalizedFrames.append(None)
@@ -238,6 +246,8 @@ class NeuralMctsPlayer():
             
             if batchSize > currentGameCount:
                 eSplitAdd = 2
+                if rounds > batchSize/1.5 and batchSize / 1.5 > currentGameCount:
+                    eSplitAdd += 3
             else:
                 eSplitAdd = -1
             

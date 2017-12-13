@@ -15,7 +15,10 @@ import torch.optim as optim
 import os
 
 import multiprocessing as mp
-from matplotlib.font_manager import path
+
+import torch
+
+torch.set_printoptions(linewidth=99999)
 
 def countParams(n):
     r = 0
@@ -128,13 +131,16 @@ class C6NetworkLearner(AbstractTorchLearner):
         return optim.Adam(net.parameters(), lr=0.001)
     
     def fillNetworkInput(self, state, tensor, batchIndex):
+#         print("A frame")
+#         print(state.c6)
         for y in range(self.n):
             bline = state.c6.board[y]
             for x in range(self.m):
                 b = bline[x]
                 if b != -1:
                     b = state.mapPlayerIndexToTurnRel(b)
-                tensor[batchIndex,0,x,y] = b
+                tensor[batchIndex,0,y,x] = b
+#         print(tensor[batchIndex,0])
 
 def stateFormat(state):
     return str(state.c6)
@@ -157,7 +163,7 @@ if __name__ == '__main__':
     mp.set_start_method("spawn")
     
     maxIter = 2000
-    framesPerIter = 94570
+    framesPerIter = 101570
     gamesPerIter = 42
     
     m = 19
@@ -168,8 +174,8 @@ if __name__ == '__main__':
     blocks = 3
     
     lrs = [0.001] * maxIter
-    epochs = 16
-    epochRuns = 2
+    epochs = 13
+    epochRuns = 1
     bsize = 70
     mctsExpansions = 1001
     print("Using %i nodes per search tree" % mctsExpansions)
@@ -181,7 +187,7 @@ if __name__ == '__main__':
     player = NeuralMctsPlayer(Connect6State(Connect6(m=m, n=n)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, path,
                                 championGames=cgames, batchSize=bsize, threads=threads)
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=11)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=1)
     
     # compare untrained + 5 nodes with untrained + 1500 nodes
 #     l0 = C6NetworkLearner(framesPerIter, bsize, epochs, h,lrs,features=f)
@@ -200,9 +206,9 @@ if __name__ == '__main__':
 #     player0 = NeuralMctsPlayer(Connect6State(Connect6(m=m, n=n)), mctsExpansions, learner0)
 #     trainer0 = NeuralMctsTrainer(player0, epochRuns, mkpath(m, n, bf, f, blocks),
 #                                   championGames=cgames, batchSize = bsize, threads=threads)
-#     for base in [10]:
+#     for base in [12]:
 #         trainer0.loadForIteration(base)
-#         for i in [5, 8]:
+#         for i in [10, 8, 6]:
 #             trainer.loadForIteration(i)
 #             print("Playing with " + str(i))
 #             results, _ = trainer.bestPlayer.playAgainst(40, 40, [trainer0.bestPlayer])
@@ -215,7 +221,7 @@ if __name__ == '__main__':
 
 
 ##    play vs human
-#     trainer.loadForIteration(10)
+#     trainer.loadForIteration(14)
 #     trainer.bestPlayer.playVsHuman(Connect6State(Connect6(m=m, n=n)), 1, [], stateFormat, mkParseCommand(m,n))
 
 

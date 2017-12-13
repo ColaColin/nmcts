@@ -23,7 +23,7 @@ class TreeEdge():
         
 class TreeNode():
     # noiseMix of 0.2 has shown better play-strength than no noise at all in mnk 5,5,4 and is therefore assumed to be a good default to use. #TODO this seems questionable?!
-    def __init__(self, state, parentEdge=None, noiseMix = 0.142): 
+    def __init__(self, state, parentEdge=None, noiseMix = 0.1): 
         assert isinstance(state, AbstractState)
         self.state = state
         mc = state.getMoveCount()
@@ -119,8 +119,12 @@ class TreeNode():
         
         moves = []
         
+        dirNoise = np.random.dirichlet(self.dconst[:numLegalMoves])
+        
         for idx in range(numLegalMoves):
             move = lMoves[idx]
+            
+            iNoise = dirNoise[idx]
             
             e = self.edges[move]
             
@@ -133,6 +137,8 @@ class TreeNode():
                 p = self.movePMap[move]
                 vc = 0.0
                 
+            p = (1-self.noiseMix) * p + self.noiseMix * iNoise
+                
             s = cpuct * p / (1.0+vc)
             
             moves.append((move, q, s))
@@ -141,7 +147,7 @@ class TreeNode():
         
         moves.sort(key=lambda x: x[1] + x[2] * f, reverse=True)
         
-        lowFactor = 0.9042
+        lowFactor = 0.89133742
         
         highLen = len(moves) - int(len(moves) * lowFactor)
         
@@ -152,8 +158,14 @@ class TreeNode():
         lows = moves[highLen:]
         
         self.highs = list(map(lambda x: x[0], moves[:highLen]))
-        self.lowQ = max(map(lambda x: x[1], lows))
-        self.lowS = max(map(lambda x: x[2], lows))
+        
+        if len(lows) > 0:
+            self.lowQ = max(map(lambda x: x[1], lows))
+            self.lowS = max(map(lambda x: x[2], lows))
+        else:
+            self.lowQ = 0
+            self.lowS = 0
+        
         self.hasHighs = True
 
 

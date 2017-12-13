@@ -75,7 +75,7 @@ class Connect6():
         mm = ['-', 'X', 'O']
         s = "Connect6(%i,%i), " %  (self.m, self.n)
         if not self.hasEnded():
-            s += "On turn: %s\n" % mm[self.getPlayerIndexOnTurn()+1]
+            s += "Turn %i: %s\n" % (self.turn, mm[self.getPlayerIndexOnTurn()+1])
         elif self.winningPlayer > -1:
             s += "Winner: %s\n" % mm[self.winningPlayer+1]
         else:
@@ -92,18 +92,13 @@ class Connect6():
     
 class Connect6State(AbstractState):
     def __init__(self, c6):
+        super(Connect6State, self).__init__()
         self.c6 = c6
         self.legalMoves = None
         
     def canTeachSomething(self):
         return True
-    
-    def findLegalMoves(self):
-        self.legalMoves = []
-        for moveIdx in range(self.getMoveCount()):
-            if self.isMoveLegal(moveIdx):
-                self.legalMoves.append(moveIdx)
-    
+        
     def getWinner(self):
         return self.c6.winningPlayer
 
@@ -118,11 +113,6 @@ class Connect6State(AbstractState):
     def isMoveLegal(self, move):
         x, y = self.getMoveLocation(move)
         return self.c6.board[y][x] == -1
-
-    def getLegalMoves(self):
-        if None == self.legalMoves:
-            self.findLegalMoves()
-        return self.legalMoves
 
     def getPlayerOnTurnIndex(self):
         return self.c6.getPlayerIndexOnTurn()
@@ -175,9 +165,19 @@ class Connect6State(AbstractState):
         return frame
         
     def simulate(self, move):
+        super(Connect6State, self).simulate(move)
         x, y = self.getMoveLocation(move)
         self.c6.place(x, y)
-        self.legalMoves = None
+        assert self.legalMoves == None
     
     def isTerminal(self):
         return self.c6.hasEnded()
+    
+    def mapPlayerIndexToTurnRel(self, playerIndex):
+        onTurnIdx = self.getPlayerOnTurnIndex()
+        if onTurnIdx == playerIndex:
+            return 0
+        else:
+            return 1
+        
+        

@@ -10,6 +10,15 @@ import abc
 
 class AbstractState(metaclass=abc.ABCMeta):
     
+    def __init__(self):
+        self.legalMoves = None
+    
+    def findLegalMoves(self):
+        self.legalMoves = []
+        for moveIdx in range(self.getMoveCount()):
+            if self.isMoveLegal(moveIdx):
+                self.legalMoves.append(moveIdx)
+    
     @abc.abstractmethod
     def getWinner(self):
         """
@@ -22,12 +31,14 @@ class AbstractState(metaclass=abc.ABCMeta):
         return True if the given move is legal
         """
         
-    @abc.abstractmethod
     def getLegalMoves(self):
         """
         return a list of all indices of legal moves
         performance relevant. cache it hard
         """
+        if self.legalMoves == None:
+            self.findLegalMoves()
+        return self.legalMoves
     
     @abc.abstractmethod
     def getPlayerOnTurnIndex(self):
@@ -93,12 +104,12 @@ class AbstractState(metaclass=abc.ABCMeta):
         For example apply random rotations or mirror it
         """
     
-    @abc.abstractmethod
-    def simulate(self, move):
+    def simulate(self, _move):
         """
         Do one step of the simulation given a move for the current player.
         Mutate this object.
         """
+        self.legalMoves = None
     
     @abc.abstractmethod
     def isEqual(self, other):

@@ -22,6 +22,7 @@ class NeuralMctsTrainer():
     def __init__(self, nplayer, epochRuns, workingdir, championGames=500, batchSize=200, threads=5):
         self.bestPlayer = nplayer.clone()
         self.learner = nplayer
+        self.lastBenchmarkTime = time.time()
         self.epochRuns = epochRuns
         self.workingdir = workingdir
         self.pool = mp.Pool(processes=threads)
@@ -115,45 +116,6 @@ class NeuralMctsTrainer():
         return improved
     
     def updateFrameHistory(self, updateTargets):
-        doTheFancyStuff = False
-        if doTheFancyStuff:
-            if updateTargets:
-                bsize = self.batchSize * 4
-                batches = int((len(self.frameHistory) / bsize) + 0.5)
-                asyncs = []
-                for bi in range(batches):
-                    asyncs.append(self.pool.apply_async(self.bestPlayer.getBatchMctsResults,
-                                          args=(self.frameHistory[bi * bsize : (bi+1) * bsize], bi * bsize)))
-                for asy in asyncs:
-                    for f in asy.get():
-                        self.frameHistory[f[0]][1] = f[1]
-                        self.frameHistory[f[0]][2] = f[2]
-    
-            self.frameHistory.sort(key=lambda f: f[2])
-            mwc = 0
-            for f in self.frameHistory:
-                mwc += f[2]
-            mwc = float(mwc) / len(self.frameHistory)
-            print("Mean win chance in the frames is "+str(mwc))
-            hwin = 0
-            rmCount = 0
-            
-            i = 0
-            while i < len(self.frameHistory) and len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
-                assert hwin <= self.frameHistory[i][2]
-                if 0 == self.frameHistory[i][3][self.frameHistory[i][0].getPlayerOnTurnIndex()] and self.frameHistory[i][2] < 0.5:
-                    hwin = self.frameHistory[i][2]
-                    rmCount += 1
-                    del self.frameHistory[i]
-                    i -= 1
-                    
-                i += 1
-            
-            # TODO why is hwin always zero? Why are there so many frames with a zero win chance?!
-            # probably because it was formatted as integer...
-            print("Highest win chance removed was %f, removed %i frames by correct low win chance assignment" % (hwin, rmCount))
-        # end of fancy stuff that probably is a bad idea...
-        
         while len(self.frameHistory) > self.learner.learner.getFramesPerIteration():
             del self.frameHistory[0]
     
@@ -161,7 +123,7 @@ class NeuralMctsTrainer():
         t = time.time()
         t0 = t
         
-        maxFrames = int(self.learner.learner.getFramesPerIteration() / 3)
+        maxFrames = int(self.learner.learner.getFramesPerIteration() / 10)
         
         framesPerProc = int(maxFrames / self.threads)
         
@@ -222,19 +184,26 @@ class NeuralMctsTrainer():
     def learnFrames(self, learnFrames, iteration):
         t = time.time()
         runs = self.epochRuns
-        improved = False
+        improved = True
         while runs > 0:
             runs -= 1
             
             random.shuffle(learnFrames)
             
-            self.learner.learner.learnFromFrames(learnFrames, iteration)
-            # TODO this plays a lot of games. Maybe those games could also be used to learn from? At least the moves of the current best player?
-            if self.learnerIsNewChampion():
-                self.bestPlayer = self.learner.clone()
-                improved = True
-                runs += 1
-        #TODO should the learner be reset to the bestplayer here? Or keep the not-so-optimal learning progress?
+            self.bestPlayer.learner.learnFromFrames(learnFrames, iteration)
+            
+            if time.time() - self.lastBenchmarkTime > 20 * 3600:
+                print("Benchmarking progress...")
+                
+                tmpBest = self.bestPlayer
+                self.bestPlayer = self.learner
+                self.learner = tmpBest
+                
+                self.learnerIsNewChampion()
+                
+                self.bestPlayer = tmpBest
+                self.learner = self.bestPlayer.clone()
+                
         print("Done learning in %f" % (time.time() - t))
         return improved
 
