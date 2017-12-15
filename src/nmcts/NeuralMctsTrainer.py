@@ -192,8 +192,9 @@ class NeuralMctsTrainer():
             
             self.bestPlayer.learner.learnFromFrames(learnFrames, iteration)
             
-            if time.time() - self.lastBenchmarkTime > 20 * 3600:
+            if time.time() - self.lastBenchmarkTime > 9 * 3600:
                 print("Benchmarking progress...")
+                self.lastBenchmarkTime = time.time()
                 
                 tmpBest = self.bestPlayer
                 self.bestPlayer = self.learner

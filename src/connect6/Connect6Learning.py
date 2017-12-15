@@ -174,7 +174,7 @@ if __name__ == '__main__':
     blocks = 3
     
     lrs = [0.001] * maxIter
-    epochs = 13
+    epochs = 9
     epochRuns = 1
     bsize = 70
     mctsExpansions = 1001
@@ -187,7 +187,7 @@ if __name__ == '__main__':
     player = NeuralMctsPlayer(Connect6State(Connect6(m=m, n=n)), mctsExpansions, learner)
     trainer = NeuralMctsTrainer(player, epochRuns, path,
                                 championGames=cgames, batchSize=bsize, threads=threads)
-    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=1)
+    trainer.iterateLearning(maxIter, gamesPerIter, startAtIteration=24)
     
     # compare untrained + 5 nodes with untrained + 1500 nodes
 #     l0 = C6NetworkLearner(framesPerIter, bsize, epochs, h,lrs,features=f)
@@ -221,8 +221,8 @@ if __name__ == '__main__':
 
 
 ##    play vs human
-#     trainer.loadForIteration(14)
-#     trainer.bestPlayer.playVsHuman(Connect6State(Connect6(m=m, n=n)), 1, [], stateFormat, mkParseCommand(m,n))
+#     trainer.loadForIteration(8)
+#     trainer.bestPlayer.playVsHuman(Connect6State(Connect6(m=m, n=n)), 0, [], stateFormat, mkParseCommand(m,n))
 
 
 
